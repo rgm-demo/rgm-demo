@@ -1,53 +1,825 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My GitHub Pages Site</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .container {
-            text-align: center;
-            background: white;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-            max-width: 500px;
-        }
-        h1 {
-            color: #333;
-            margin-top: 0;
-        }
-        p {
-            color: #666;
-            line-height: 1.6;
-        }
-        .badge {
-            display: inline-block;
-            background: #667eea;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 14px;
-            margin-top: 20px;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interaktives Kartenmapping</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --ink: #111827;
+      --ink-soft: #334155;
+      --muted: #64748b;
+      --line: #d9dee7;
+      --line-soft: #e8edf3;
+      --blue: #1f6feb;
+      --blue-soft: #e8f1ff;
+      --black: #121212;
+      --red: #d61f2c;
+      --red-soft: #fff1f2;
+      --green: #087f5b;
+      --shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
+      --sidebar: 382px;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+    }
+
+    body {
+      overflow: hidden;
+    }
+
+    button,
+    input,
+    label {
+      font: inherit;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-rows: 76px 1fr;
+      min-height: 100vh;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto;
+      align-items: center;
+      gap: 24px;
+      padding: 14px 22px 14px 26px;
+      background: rgba(255, 255, 255, 0.96);
+      border-bottom: 1px solid var(--line);
+      z-index: 10;
+    }
+
+    .brand {
+      min-width: 0;
+    }
+
+    .brand-kicker {
+      margin: 0 0 3px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      color: var(--ink);
+      font-size: clamp(20px, 2vw, 28px);
+      font-weight: 760;
+      line-height: 1.1;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .status-strip {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      min-width: 280px;
+    }
+
+    .status-pill {
+      max-width: 470px;
+      padding: 8px 11px;
+      color: var(--ink-soft);
+      background: #f8fafc;
+      border: 1px solid var(--line-soft);
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .progress {
+      width: 126px;
+      height: 5px;
+      overflow: hidden;
+      background: #edf1f5;
+      border-radius: 999px;
+    }
+
+    .progress span {
+      display: block;
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+      transition: width 0.2s ease;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .sidebar {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      min-height: 0;
+      padding: 18px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      overflow: auto;
+    }
+
+    .control-block {
+      padding: 0 0 18px;
+      border-bottom: 1px solid var(--line-soft);
+      margin-bottom: 18px;
+    }
+
+    .control-block:last-child {
+      border-bottom: 0;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .block-title {
+      margin: 0 0 12px;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 760;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .file-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .button,
+    .file-label {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      padding: 9px 13px;
+      color: #ffffff;
+      background: var(--ink);
+      border: 1px solid var(--ink);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.15;
+      text-align: center;
+      transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .button:hover,
+    .file-label:hover {
+      transform: translateY(-1px);
+      background: #000000;
+      border-color: #000000;
+    }
+
+    .button.secondary {
+      color: var(--ink);
+      background: #ffffff;
+      border-color: var(--line);
+    }
+
+    .button.secondary:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+      margin-top: 10px;
+    }
+
+    .file-name {
+      color: var(--muted);
+      min-height: 17px;
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .search {
+      width: 100%;
+      min-height: 38px;
+      padding: 9px 10px;
+      color: var(--ink);
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      outline: none;
+      font-size: 13px;
+    }
+
+    .search:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.12);
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .metric {
+      min-height: 74px;
+      padding: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+    }
+
+    .metric-value {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink);
+      font-size: 24px;
+      font-weight: 790;
+      line-height: 1;
+    }
+
+    .metric-label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .layer-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .toggle {
+      display: grid;
+      grid-template-columns: 18px 1fr auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 28px;
+      color: var(--ink-soft);
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .toggle input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: var(--ink);
+    }
+
+    .dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+    }
+
+    .dot.blue {
+      background: var(--blue);
+    }
+
+    .dot.black {
+      background: var(--black);
+    }
+
+    .dot.red {
+      background: var(--red);
+    }
+
+    .dot.line {
+      width: 20px;
+      height: 2px;
+      border-radius: 0;
+      background: #8a99aa;
+    }
+
+    .focus-panel {
+      min-height: 168px;
+      padding: 14px;
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+    }
+
+    .focus-eyebrow {
+      margin: 0 0 8px;
+      color: #a7b3c5;
+      font-size: 11px;
+      font-weight: 760;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .focus-title {
+      margin: 0 0 10px;
+      font-size: 19px;
+      font-weight: 780;
+      line-height: 1.18;
+      overflow-wrap: anywhere;
+    }
+
+    .focus-meta {
+      display: grid;
+      gap: 7px;
+      margin-top: 10px;
+      color: #d6deea;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .focus-meta strong {
+      color: #ffffff;
+      font-weight: 760;
+    }
+
+    .issues {
+      display: grid;
+      gap: 6px;
+      max-height: 190px;
+      overflow: auto;
+      padding-right: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .issue-item {
+      padding: 8px 9px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 4px;
+      color: #9a3412;
+      overflow-wrap: anywhere;
+    }
+
+    .source-note {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .map-wrap {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      background: #dfe5eb;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    .empty-state {
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      z-index: 500;
+      width: min(392px, calc(100% - 44px));
+      padding: 18px 18px 16px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+    }
+
+    .empty-state[hidden] {
+      display: none;
+    }
+
+    .empty-state h2 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .empty-state p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .legend {
+      position: absolute;
+      right: 22px;
+      bottom: 22px;
+      z-index: 500;
+      display: grid;
+      gap: 8px;
+      min-width: 206px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.11);
+      color: var(--ink-soft);
+      font-size: 12px;
+    }
+
+    .legend-row {
+      display: grid;
+      grid-template-columns: 14px 1fr;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .leaflet-control-attribution {
+      font-size: 10px;
+    }
+
+    .distance-label,
+    .orientation-label {
+      padding: 3px 7px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      border-radius: 4px;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.13);
+      font-weight: 780;
+      font-size: 11px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .distance-label::before,
+    .orientation-label::before {
+      display: none;
+    }
+
+    .home-label {
+      color: #0b4eb4;
+      background: rgba(232, 241, 255, 0.96);
+    }
+
+    .target-label {
+      color: #ffffff;
+      background: rgba(17, 24, 39, 0.9);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    .orientation-label {
+      color: #b91c1c;
+      background: rgba(255, 241, 242, 0.98);
+    }
+
+    .insight-popup .leaflet-popup-content-wrapper {
+      color: var(--ink);
+      border-radius: 6px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+    }
+
+    .insight-popup .leaflet-popup-content {
+      min-width: 210px;
+      margin: 12px 14px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .popup-title {
+      margin: 0 0 7px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .popup-row {
+      margin: 4px 0;
+      color: var(--ink-soft);
+    }
+
+    .popup-row strong {
+      color: var(--ink);
+      font-weight: 760;
+    }
+
+    .leaflet-container {
+      background: #e6ecf2;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    .leaflet-bar a {
+      color: var(--ink);
+    }
+
+    @media (max-width: 980px) {
+      body {
+        overflow: auto;
+      }
+
+      .app-shell {
+        grid-template-rows: auto auto;
+        min-height: 100vh;
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
+        align-items: start;
+        gap: 10px;
+        padding: 14px 16px;
+      }
+
+      h1 {
+        white-space: normal;
+      }
+
+      .status-strip {
+        justify-content: stretch;
+        min-width: 0;
+      }
+
+      .status-pill {
+        flex: 1;
+        white-space: normal;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        grid-template-rows: auto;
+        max-height: none;
+      }
+
+      .map-wrap {
+        height: 68vh;
+        min-height: 500px;
+      }
+
+      .legend {
+        right: 14px;
+        bottom: 14px;
+      }
+    }
+
+    @media (max-width: 540px) {
+      .metric-grid,
+      .button-row {
+        grid-template-columns: 1fr;
+      }
+
+      .empty-state {
+        top: 14px;
+        right: 14px;
+        width: calc(100% - 28px);
+      }
+
+      .legend {
+        left: 14px;
+        right: 14px;
+        min-width: 0;
+      }
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🚀 Welcome!</h1>
-        <p>Your GitHub Pages site is live and ready to go.</p>
-        <p>Edit the <code>index.html</code> file to customize your site.</p>
-        <span class="badge">Powered by GitHub Pages</span>
-    </div>
-</body>
-</html>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <p class="brand-kicker">Geo Analytics Dashboard</p>
+        <h1>Interaktives Kartenmapping</h1>
+      </div>
+      <div class="status-strip" aria-live="polite">
+        <div class="status-pill" id="statusText">Bereit. Orientierungspunkte werden geladen.</div>
+        <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar" aria-label="Steuerung und Kennzahlen">
+        <section class="control-block">
+          <h2 class="block-title">Datenquelle</h2>
+          <div class="file-row">
+            <input class="file-input" id="fileInput" type="file" accept=".xlsx,.xls">
+            <label class="file-label" for="fileInput">Rohdaten-Mapping.xlsx laden</label>
+            <div class="file-name" id="fileName">Noch keine Exceldatei geladen.</div>
+          </div>
+          <div class="button-row">
+            <button class="button secondary" id="fitButton" type="button">Ansicht</button>
+            <button class="button secondary" id="cacheButton" type="button">Cache leeren</button>
+          </div>
+        </section>
+
+        <section class="control-block">
+          <h2 class="block-title">Kennzahlen</h2>
+          <div class="metric-grid">
+            <div class="metric">
+              <span class="metric-value" id="metricRecords">0</span>
+              <span class="metric-label">Datensätze</span>
+            </div>
+            <div class="metric">
+              <span class="metric-value" id="metricAvg">-</span>
+              <span class="metric-label">Ø Wohnort-Ziel</span>
+            </div>
+            <div class="metric">
+              <span class="metric-value" id="metricMax">-</span>
+              <span class="metric-label">Max. Distanz</span>
+            </div>
+            <div class="metric">
+              <span class="metric-value" id="metricIssues">0</span>
+              <span class="metric-label">Offen</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-block">
+          <h2 class="block-title">Layer</h2>
+          <input class="search" id="searchInput" type="search" placeholder="Suche nach Begriff, Wohnort oder Zielort">
+          <div class="layer-list" style="margin-top: 12px;">
+            <label class="toggle">
+              <input type="checkbox" id="toggleHomes" checked>
+              <span>Wohnorte</span>
+              <span class="dot blue"></span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="toggleTargets" checked>
+              <span>Zielorte</span>
+              <span class="dot black"></span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="toggleOrientation" checked>
+              <span>Orientierungspunkte</span>
+              <span class="dot red"></span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="toggleLines" checked>
+              <span>Verbindungen</span>
+              <span class="dot line"></span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="toggleLabels" checked>
+              <span>Kilometerlabels</span>
+              <span></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="control-block">
+          <h2 class="block-title">Hover</h2>
+          <div class="focus-panel">
+            <p class="focus-eyebrow" id="focusType">Kein Punkt aktiv</p>
+            <p class="focus-title" id="focusTitle">Punkt auf der Karte berühren</p>
+            <div class="focus-meta" id="focusMeta">
+              <span>Die indirekte Beschriftung aus Spalte A erscheint hier und am Kartenpunkt.</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-block">
+          <h2 class="block-title">Nicht zugeordnet</h2>
+          <div class="issues" id="issuesList">
+            <span>Keine offenen Geocoding-Treffer.</span>
+          </div>
+        </section>
+
+        <section class="control-block">
+          <p class="source-note">
+            Kartendaten: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>.
+            Geocoding: <a href="https://nominatim.org/" target="_blank" rel="noreferrer">Nominatim</a>.
+          </p>
+        </section>
+      </aside>
+
+      <section class="map-wrap" aria-label="Kartenvisualisierung">
+        <div id="map"></div>
+        <div class="empty-state" id="emptyState">
+          <h2>Rohdaten-Mapping.xlsx auswählen</h2>
+          <p>Die Karte nutzt Spalte A als Hover-Begriff, Spalte B als Wohnort und Spalte C als Zielort. Die festen Orientierungspunkte sind bereits hinterlegt.</p>
+        </div>
+        <div class="legend" aria-label="Legende">
+          <div class="legend-row"><span class="dot blue"></span><span>Wohnorte mit Entfernung zum Zielort</span></div>
+          <div class="legend-row"><span class="dot black"></span><span>Zielorte mit Entfernung zum nächsten Orientierungspunkt</span></div>
+          <div class="legend-row"><span class="dot red"></span><span>Feste Orientierungspunkte mit Kürzel</span></div>
+          <div class="legend-row"><span class="dot line"></span><span>Wohnort-Ziel-Verbindung</span></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script>
+    "use strict";
+
+    const ORIENTATION_POINTS = [
+      {
+        code: "AGH",
+        name: "Augustinushaus",
+        address: "Krefelder Straße 82, 41539 Dormagen, Deutschland",
+        fallback: [51.0979, 6.8428]
+      },
+      {
+        code: "HIM",
+        name: "Haus Immaculata",
+        address: "Augustinusstraße 46, 41464 Neuss, Deutschland",
+        fallback: [51.1909, 6.6909]
+      },
+      {
+        code: "HMH",
+        name: "Haus Maria Hilf",
+        address: "Goetersstraße 30, 41747 Viersen, Deutschland",
+        fallback: [51.2544, 6.3913]
+      },
+      {
+        code: "HSA",
+        name: "Haus St. Antonius",
+        address: "Kreuzherrenstraße 24, 41189 Mönchengladbach-Wickrath, Deutschland",
+        fallback: [51.1333, 6.4142]
+      },
+      {
+        code: "JVG",
+        name: "Johannes von Gott Haus",
+        address: "Meertal 6, 41464 Neuss, Deutschland",
+        fallback: [51.1857, 6.6908]
+      },
+      {
+        code: "TH",
+        name: "Theresienheim",
+        address: "Theresienstraße 3, 41751 Viersen, Deutschland",
+        fallback: [51.2818, 6.3627]
+      },
+      {
+        code: "MZ",
+        name: "Memory Zentrum / Haus St. Georg",
+        address: "Steinhausstraße 40, 41462 Neuss, Deutschland",
+        fallback: [51.2145, 6.6806]
+      }
+    ];
+
+    const state = {
+      map: null,
+      layers: {},
+      records: [],
+      mappedRecords: [],
+      orientation: [],
+      issues: [],
+      search: "",
+      settings: {
+        homes: true,
+        targets: true,
+        orientation: true,
+        lines: true,
+        labels: true
+      },
+      lastGeocodeAt: 0
+    };
+
+    const dom = {
+      statusText: document.getElementById("statusText"),
+      progressBar: document.getElementById("progressBar"),
+      fileInput: document.getElementById("fileInput"),
+      fileName: document.getElementById("fileName"),
+      searchInput: document.getElementById("searchInput"),
+      fitButton: document.getElementById("fitButton"),
+      cacheButton: document.getElementById("cacheButton"),
+      emptyState: document.getElementById("emptyState"),
+      metricRecords: document.getElementById("metricRecords"),
+      metricAvg: document.getElementById("metricAvg"),
+      metricMax: document.getElementById("metricMax"),
+      metricIssues: document.getElementById("metricIssues"),
+      issuesList: documen
