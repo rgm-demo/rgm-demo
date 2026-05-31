@@ -592,10 +592,11 @@
 
     .fallback-line {
       fill: none;
-      stroke: #4a5568;       /* Dunklere Linienfarbe */
-      stroke-width: 2.5;     /* Höhere Linienstärke */
-      /* stroke-dasharray: 6 8; */ /* Auskommentieren, wenn die Linie durchgezogen sein soll */
-      opacity: 0.8;          /* Höhere Deckkraft */
+      stroke: #718096;
+      stroke-width: 1.35;
+      stroke-dasharray: 5 7;
+      opacity: 0.34;
+      transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
     }
 
     .fallback-point {
@@ -931,6 +932,8 @@
       engine: "leaflet",
       homeMarkers: new Map(),
       homeSvgMarkers: new Map(),
+      lineMarkers: new Map(),       // Speichert Leaflet-Verbindungslinien pro Record-ID
+      lineSvgMarkers: new Map(),    // Speichert SVG-Fallback-Linien pro Record-ID
       fallback: {
         root: null,
         svg: null,
@@ -1211,12 +1214,11 @@
       const workbookRelsXml = await readZipText(zip, "xl/_rels/workbook.xml.rels");
       const dataSheet = parseWorkbookSheet(workbookXml, "Sheet1");
       const sheetTarget = parseRelationshipTarget(workbookRelsXml, dataSheet.relId);
-      if (!sheetTarget) throw new Error("Das Tabellenblatt Sheet1 konnte nicht gefunden werden.");
 
+      if (!sheetTarget) throw new Error("Das Tabellenblatt Sheet1 konnte nicht gefunden werden.");
       const sheetPath = normalizeZipPath("xl", sheetTarget);
-      const sharedStrings = zip.entries.has("xl/sharedStrings.xml")
-        ? parseSharedStrings(await readZipText(zip, "xl/sharedStrings.xml"))
-        : [];
+
+      const sharedStrings = zip.entries.has("xl/sharedStrings.xml") ? parseSharedStrings(await readZipText(zip, "xl/sharedStrings.xml")) : [];
       const sheetXml = await readZipText(zip, sheetPath);
       return parseWorksheetRows(sheetXml, sharedStrings);
     }
@@ -1227,6 +1229,7 @@
       const eocdOffset = findEndOfCentralDirectory(bytes);
       const totalEntries = view.getUint16(eocdOffset + 10, true);
       const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+
       const entries = new Map();
       let offset = centralDirectoryOffset;
 
@@ -1234,13 +1237,13 @@
         if (view.getUint32(offset, true) !== 0x02014b50) {
           throw new Error("Die Exceldatei ist keine gültige .xlsx-Datei.");
         }
-
         const method = view.getUint16(offset + 10, true);
         const compressedSize = view.getUint32(offset + 20, true);
         const fileNameLength = view.getUint16(offset + 28, true);
         const extraLength = view.getUint16(offset + 30, true);
         const commentLength = view.getUint16(offset + 32, true);
         const localHeaderOffset = view.getUint32(offset + 42, true);
+
         const nameStart = offset + 46;
         const name = new TextDecoder("utf-8").decode(bytes.slice(nameStart, nameStart + fileNameLength));
 
@@ -1278,6 +1281,7 @@
       const view = new DataView(zip.buffer);
       const bytes = new Uint8Array(zip.buffer);
       const offset = entry.localHeaderOffset;
+
       if (view.getUint32(offset, true) !== 0x04034b50) {
         throw new Error("Ein Tabellenbestandteil konnte nicht gelesen werden.");
       }
@@ -1285,8 +1289,8 @@
       const fileNameLength = view.getUint16(offset + 26, true);
       const extraLength = view.getUint16(offset + 28, true);
       const dataStart = offset + 30 + fileNameLength + extraLength;
-      const compressed = bytes.slice(dataStart, dataStart + entry.compressedSize);
 
+      const compressed = bytes.slice(dataStart, dataStart + entry.compressedSize);
       if (entry.method === 0) return compressed;
       if (entry.method === 8) return inflateRaw(compressed);
       throw new Error("Die Komprimierung dieser .xlsx-Datei wird nicht unterstützt.");
@@ -1306,15 +1310,12 @@
       const sheetRegex = /<(?:\w+:)?sheet\b[^>]*>/gi;
       let match;
       const sheets = [];
-
       while ((match = sheetRegex.exec(workbookXml))) {
         const attrs = parseXmlAttributes(match[0]);
         const relId = attrs["r:id"] || attrs.id;
         if (relId) sheets.push({ name: attrs.name || "", relId });
       }
-
       if (!sheets.length) throw new Error("In der Exceldatei wurde kein Tabellenblatt gefunden.");
-
       const exactSheet = sheets.find((sheet) => sheet.name === sheetName);
       if (!exactSheet) throw new Error(`Das Tabellenblatt ${sheetName} wurde nicht gefunden.`);
       return exactSheet;
@@ -1349,19 +1350,17 @@
         const rowAttrs = parseXmlAttributes(rowMatch[1]);
         const rowIndex = Math.max(0, Number(rowAttrs.r || rows.length + 1) - 1);
         const row = rows[rowIndex] || [];
+
         const cellRegex = /<(?:\w+:)?c\b([^>]*)>([\s\S]*?)<\/(?:\w+:)?c>/gi;
         let cellMatch;
-
         while ((cellMatch = cellRegex.exec(rowMatch[2]))) {
           const attrs = parseXmlAttributes(cellMatch[1]);
           const columnIndex = columnIndexFromReference(attrs.r);
           if (columnIndex < 0 || columnIndex > 3) continue;
           row[columnIndex] = readCellValue(attrs, cellMatch[2], sharedStrings);
         }
-
         rows[rowIndex] = row;
       }
-
       return rows.map((row) => row || []);
     }
 
@@ -1413,631 +1412,331 @@
     }
 
     function parseRows(rows) {
-      const nonEmpty = rows.filter((row) => row.some((cell) => String(cell).trim() !== ""));
-      if (!nonEmpty.length) return [];
+      const parsed = [];
+      const startIndex = findHeaderRowIndex(rows) + 1;
 
-      const columnIndexes = resolveColumnIndexes(nonEmpty[0]);
-      const startIndex = columnIndexes.hasHeader ? 1 : 0;
-      const records = [];
-      const seenPackages = new Set();
+      for (let i = startIndex; i < rows.length; i += 1) {
+        const row = rows[i];
+        if (!row) continue;
+        const label = cleanCell(row[0]);
+        const home = cleanCell(row[1]);
+        const facility = cleanCell(row[2]);
+        const target = cleanCell(row[3]);
+        if (!home || !target) continue;
 
-      for (let index = startIndex; index < nonEmpty.length; index += 1) {
-        const row = nonEmpty[index];
-        const term = cleanCell(row[columnIndexes.term]) || `Zeile ${index + 1}`;
-        const home = cleanCell(row[columnIndexes.home]);
-        const facilityName = cleanCell(row[columnIndexes.facility]);
-        const target = cleanCell(row[columnIndexes.target]);
-
-        if (!home && !target) continue;
-
-        if (!home || !target) {
-          state.issues.push(`Zeile ${index + 1}: Wohnort oder Zielort fehlt`);
-          continue;
-        }
-
-        const packageKey = JSON.stringify([term, home, facilityName, target]);
-        if (seenPackages.has(packageKey)) {
-          state.issues.push(`Zeile ${index + 1}: doppeltes Datenpaket aus Spalte A-D übersprungen`);
-          continue;
-        }
-        seenPackages.add(packageKey);
-
-        records.push({
-          id: records.length + 1,
-          rowNumber: index + 1,
-          term,
-          facilityName,
+        parsed.push({
+          id: i,
+          label: label || `Zeile ${i + 1}`,
           home,
-          target
+          facility: facility || "Einrichtung unbenannt",
+          target,
+          homeGeo: null,
+          targetGeo: null,
+          distance: null
         });
       }
-
-      return records;
+      return parsed;
     }
 
-    function looksLikeHeader(row) {
-      const a = cleanCell(row[0]).toLowerCase();
-      const b = cleanCell(row[1]).toLowerCase();
-      const c = cleanCell(row[2]).toLowerCase();
-      const d = cleanCell(row[3]).toLowerCase();
-      return b.includes("wohnort") || c.includes("zielort") || d.includes("zielort") || a.includes("begriff") || a.includes("bezeichnung") || c.includes("einrichtung");
-    }
-
-    function resolveColumnIndexes(row) {
-      if (!looksLikeHeader(row)) {
-        const hasFourColumnStructure = cleanCell(row[3]) !== "";
-        return {
-          hasHeader: false,
-          term: 0,
-          home: 1,
-          facility: hasFourColumnStructure ? 2 : -1,
-          target: hasFourColumnStructure ? 3 : 2
-        };
+    function findHeaderRowIndex(rows) {
+      for (let index = 0; index < Math.min(12, rows.length); index += 1) {
+        const row = rows[index] || [];
+        const textB = String(row[1] ?? "").toLowerCase();
+        const textD = String(row[3] ?? "").toLowerCase();
+        if (
+          (textB.includes("plz") || textB.includes("wohnort")) &&
+          (textD.includes("ziel") || textD.includes("adresse"))
+        ) {
+          return index;
+        }
       }
-
-      const headers = row.map((cell) => cleanCell(cell).toLowerCase());
-      const findHeader = (patterns, fallback) => {
-        const found = headers.findIndex((header) => patterns.some((pattern) => header.includes(pattern)));
-        return found >= 0 ? found : fallback;
-      };
-
-      const facility = findHeader(["einrichtungsname", "einrichtung", "facility"], -1);
-      const targetFallback = facility >= 0 && cleanCell(row[3]) ? 3 : 2;
-
-      return {
-        hasHeader: true,
-        term: findHeader(["bezeichnung", "begriff", "name"], 0),
-        home: findHeader(["wohnort", "start"], 1),
-        facility,
-        target: findHeader(["zielort", "endpunkt"], targetFallback)
-      };
+      return -1;
     }
 
     async function geocodeRecords(records) {
-      const uniquePlaces = [...new Set(records.flatMap((record) => [record.home, record.target]))];
-      const placeMap = new Map();
+      const cache = loadGeocodeCache();
+      const uniquePlaces = new Set(records.flatMap((r) => [r.home, r.target]));
+      const total = uniquePlaces.size;
+      let count = 0;
 
-      for (let index = 0; index < uniquePlaces.length; index += 1) {
-        const place = uniquePlaces[index];
-        setStatus(`Geocoding Ort/Adresse ${index + 1}/${uniquePlaces.length}: ${place}`, 8 + Math.round((index / Math.max(uniquePlaces.length, 1)) * 78));
+      for (const place of uniquePlaces) {
+        count += 1;
+        if (cache.has(place)) continue;
+        setStatus(`Geocodiere: ${place} (${count}/${total})`, 6 + Math.round((count / total) * 14));
         try {
-          placeMap.set(place, await geocode(place));
-        } catch (error) {
-          placeMap.set(place, null);
-          state.issues.push(`${place}: kein Geocoding-Treffer`);
+          const res = await queryNominatim(place);
+          if (res) cache.set(place, res);
+        } catch (err) {
+          console.warn(`Nominatim-Fehler für ${place}:`, err);
         }
       }
 
-      const mappedRecords = records.map((record) => {
-        const homeGeo = placeMap.get(record.home);
-        const targetGeo = placeMap.get(record.target);
-        const mapped = {
-          ...record,
-          facilityName: record.facilityName || "",
-          homeGeo,
-          targetGeo,
-          homeTargetKm: null,
-          nearestOrientation: null,
-          targetOrientationKm: null
-        };
+      saveGeocodeCache(cache);
 
-        if (!mapped.facilityName && targetGeo) {
-          mapped.facilityName = inferFacilityName(targetGeo, record.target);
-        }
-
-        if (homeGeo && targetGeo) {
-          mapped.homeTargetKm = haversineKm(homeGeo.coord, targetGeo.coord);
+      records.forEach((record) => {
+        record.homeGeo = cache.get(record.home) || null;
+        record.targetGeo = cache.get(record.target) || null;
+        if (record.homeGeo && record.targetGeo) {
+          record.distance = computeHaversine(record.homeGeo.coord, record.targetGeo.coord);
+          state.mappedRecords.push(record);
         } else {
-          state.issues.push(`Zeile ${record.rowNumber}: ${record.term} unvollständig geocodiert`);
+          const missing = [];
+          if (!record.homeGeo) missing.push(`Wohnort "${record.home}"`);
+          if (!record.targetGeo) missing.push(`Zielort "${record.target}"`);
+          state.issues.push(`${record.label}: Konnte ${missing.join(" und ")} nicht geocodieren`);
         }
-
-        if (targetGeo && state.orientation.length) {
-          mapped.nearestOrientation = findNearestOrientation(targetGeo.coord);
-          mapped.targetOrientationKm = mapped.nearestOrientation ? mapped.nearestOrientation.distanceKm : null;
-        }
-
-        return mapped;
       });
 
-      state.mappedRecords = mappedRecords;
-      return uniquePlaces.length;
+      return cache.size;
     }
 
-    function coordKey(coord) {
-      return `${Number(coord[0]).toFixed(6)},${Number(coord[1]).toFixed(6)}`;
-    }
+    async function queryNominatim(query) {
+      const clean = query.replace(/\b(plz|postleitzahl)\b/gi, "").trim();
+      let searchUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(clean)}`;
+      if (/^\d{5}$/.test(clean)) {
+        searchUrl += "&countrycodes=de";
+      }
 
-    function offsetCoord(coord, group, recordIndex, type) {
-      if (!group || group.length <= 1) return coord;
-      const position = group.indexOf(recordIndex);
-      if (position < 0) return coord;
+      const elapsed = Date.now() - state.lastGeocodeAt;
+      if (elapsed < 1100) await sleep(1100 - elapsed);
+      state.lastGeocodeAt = Date.now();
 
-      const angle = (Math.PI * 2 * position) / group.length;
-      const baseKm = type === "home" ? 0.75 : 0.34;
-      const radiusKm = Math.min(type === "home" ? 1.15 : 0.56, baseKm + Math.floor(position / 18) * 0.2);
-      const latRad = toRad(coord[0]);
-      const latOffset = (radiusKm * Math.sin(angle)) / 111.32;
-      const lngOffset = (radiusKm * Math.cos(angle)) / (111.32 * Math.max(0.2, Math.cos(latRad)));
-      return [coord[0] + latOffset, coord[1] + lngOffset];
-    }
-
-    function buildTargetClusters(records) {
-      const clustersByKey = new Map();
-
-      records.forEach((record) => {
-        if (!record.targetGeo) return;
-        const key = normalizeForCompare(record.facilityName || record.target);
-        if (!clustersByKey.has(key)) {
-          clustersByKey.set(key, {
-            key,
-            facilityName: record.facilityName || record.target,
-            records: [],
-            targetAddresses: new Set(),
-            coords: []
-          });
-        }
-
-        const cluster = clustersByKey.get(key);
-        cluster.records.push(record);
-        cluster.targetAddresses.add(record.target);
-        cluster.coords.push(record.targetGeo.coord);
+      const response = await fetch(searchUrl, {
+        headers: { "User-Agent": "Interactive-Mapping-Dashboard-App/2.0" }
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
 
-      let clusters = [...clustersByKey.values()].map((cluster) => {
-        const coord = averageCoord(cluster.coords);
-        const nearestOrientation = state.orientation.length ? findNearestOrientation(coord) : null;
+      if (data && data[0]) {
         return {
-          ...cluster,
-          count: cluster.records.length,
-          coord,
-          displayCoord: coord,
-          nearestOrientation,
-          targetOrientationKm: nearestOrientation ? nearestOrientation.distanceKm : null
+          coord: [parseFloat(data[0].lat), parseFloat(data[0].lon)],
+          displayName: data[0].display_name,
+          fallbackUsed: false
         };
-      });
-
-      const coordinateGroups = new Map();
-      clusters.forEach((cluster, index) => {
-        const key = coordKey(cluster.coord);
-        if (!coordinateGroups.has(key)) coordinateGroups.set(key, []);
-        coordinateGroups.get(key).push(index);
-      });
-
-      clusters = clusters.map((cluster, index) => ({
-        ...cluster,
-        displayCoord: offsetCoord(cluster.coord, coordinateGroups.get(coordKey(cluster.coord)), index, "target")
-      }));
-
-      return clusters;
-    }
-
-    function averageCoord(coords) {
-      const sum = coords.reduce((acc, coord) => [acc[0] + coord[0], acc[1] + coord[1]], [0, 0]);
-      return [sum[0] / coords.length, sum[1] / coords.length];
-    }
-
-    function buildHomeClusters(records) {
-      const clustersByPostcode = new Map();
-
-      records.forEach((record) => {
-        if (!record.homeGeo) return;
-        const key = record.home;
-        if (!clustersByPostcode.has(key)) {
-          clustersByPostcode.set(key, {
-            key,
-            postcode: record.home,
-            records: [],
-            coords: []
-          });
-        }
-
-        const cluster = clustersByPostcode.get(key);
-        cluster.records.push(record);
-        cluster.coords.push(record.homeGeo.coord);
-      });
-
-      let clusters = [...clustersByPostcode.values()].map((cluster) => {
-        const coord = averageCoord(cluster.coords);
-        return {
-          ...cluster,
-          count: cluster.records.length,
-          coord,
-          displayCoord: coord
-        };
-      });
-
-      const coordinateGroups = new Map();
-      clusters.forEach((cluster, index) => {
-        const key = coordKey(cluster.coord);
-        if (!coordinateGroups.has(key)) coordinateGroups.set(key, []);
-        coordinateGroups.get(key).push(index);
-      });
-
-      clusters = clusters.map((cluster, index) => ({
-        ...cluster,
-        displayCoord: offsetCoord(cluster.coord, coordinateGroups.get(coordKey(cluster.coord)), index, "home")
-      }));
-
-      return clusters;
-    }
-
-    function indexClustersByRecordId(clusters) {
-      const index = new Map();
-      clusters.forEach((cluster) => {
-        cluster.records.forEach((record) => index.set(record.id, cluster));
-      });
-      return index;
-    }
-
-    function homeClusterFocusRows(cluster) {
-      return [
-        ["Postleitzahl", cluster.postcode],
-        ["Anzahl", String(cluster.count)],
-        { heading: "Patienten:" },
-        ...cluster.records
-          .slice()
-          .sort((a, b) => a.term.localeCompare(b.term, "de", { numeric: true }))
-          .map((record) => record.term)
-      ];
-    }
-
-    function homeClusterPopup(cluster) {
-      const itemList = cluster.records
-        .slice()
-        .sort((a, b) => a.term.localeCompare(b.term, "de", { numeric: true }))
-        .map((record) => `<span>${escapeHtml(record.term)}</span>`)
-        .join("");
-
-      return `
-        <p class="popup-title">PLZ ${escapeHtml(cluster.postcode)}</p>
-        <p class="popup-row"><strong>Anzahl:</strong> ${cluster.count}</p>
-        <div class="popup-list"><strong class="popup-list-title">Patienten:</strong>${itemList}</div>
-      `;
-    }
-
-    function clusterFocusRows(cluster) {
-      return [
-        ["Einrichtung", cluster.facilityName],
-        ["Anzahl", String(cluster.count)],
-        ["Zieladresse", [...cluster.targetAddresses].join(" | ")],
-        ["Nächster Orientierungspunkt", nearestOrientationLabel(cluster)],
-        { heading: "Patienten:" },
-        ...cluster.records
-          .slice()
-          .sort((a, b) => a.term.localeCompare(b.term, "de", { numeric: true }))
-          .map((record) => `${record.term}, ${formatKmFromHome(record.homeTargetKm)}`)
-      ];
-    }
-
-    function clusterPopup(cluster) {
-      const addressText = [...cluster.targetAddresses].map((target) => escapeHtml(target)).join("<br>");
-      const nearestLabel = nearestOrientationLabel(cluster);
-      const itemList = cluster.records
-        .slice()
-        .sort((a, b) => a.term.localeCompare(b.term, "de", { numeric: true }))
-        .map((record) => `<span>${escapeHtml(record.term)}, ${escapeHtml(formatKmFromHome(record.homeTargetKm))}</span>`)
-        .join("");
-
-      return `
-        <p class="popup-title">${escapeHtml(cluster.facilityName)}</p>
-        <p class="popup-row"><strong>Anzahl:</strong> ${cluster.count}</p>
-        <p class="popup-row"><strong>Zieladresse:</strong><br>${addressText}</p>
-        <p class="popup-row"><strong>Nächster Orientierungspunkt:</strong> ${escapeHtml(nearestLabel)}</p>
-        <div class="popup-list"><strong class="popup-list-title">Patienten:</strong>${itemList}</div>
-      `;
-    }
-
-    function nearestOrientationLabel(cluster) {
-      if (!cluster.nearestOrientation) return "-";
-      const distance = Number.isFinite(cluster.targetOrientationKm) ? `${Math.round(cluster.targetOrientationKm)} km entfernt` : "Entfernung nicht verfügbar";
-      return `${cluster.nearestOrientation.code} - ${cluster.nearestOrientation.name} "${distance}"`;
-    }
-
-    function highlightHomes(recordIds, active) {
-      recordIds.forEach((recordId) => highlightHome(recordId, active));
-    }
-
-    async function geocode(rawQuery, fallbackCoord) {
-      const raw = cleanCell(rawQuery);
-      if (isGermanPostcode(raw)) {
-        return geocodePostcode(raw);
       }
+      return null;
+    }
 
-      const query = normalizeQuery(rawQuery);
-      const cacheKey = `geo-map-v4:${query.toLowerCase()}`;
-      const cached = readCache(cacheKey);
-      if (cached) return cached;
-
-      await waitForGeocodeTurn();
-
-      const url = new URL("https://nominatim.openstreetmap.org/search");
-      url.searchParams.set("format", "jsonv2");
-      url.searchParams.set("limit", "1");
-      url.searchParams.set("countrycodes", "de");
-      url.searchParams.set("addressdetails", "1");
-      url.searchParams.set("namedetails", "1");
-      url.searchParams.set("accept-language", "de");
-      url.searchParams.set("q", query);
+    async function geocode(address, fallbackCoord) {
+      const cache = loadGeocodeCache();
+      if (cache.has(address)) return cache.get(address);
 
       try {
-        const response = await fetch(url.toString(), {
-          headers: { "Accept": "application/json" }
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        const res = await queryNominatim(address);
+        if (res) {
+          cache.set(address, res);
+          saveGeocodeCache(cache);
+          return res;
         }
-
-        const results = await response.json();
-        if (Array.isArray(results) && results.length) {
-          const first = results[0];
-          const value = {
-            coord: [Number(first.lat), Number(first.lon)],
-            displayName: first.display_name || query,
-            name: extractNominatimName(first),
-            fallbackUsed: false
-          };
-          writeCache(cacheKey, value);
-          return value;
-        }
-      } catch (error) {
-        if (!fallbackCoord) throw error;
+      } catch (err) {
+        console.error(err);
       }
 
-      if (fallbackCoord) {
-        const fallback = { coord: fallbackCoord, displayName: rawQuery, fallbackUsed: true };
-        writeCache(cacheKey, fallback);
-        return fallback;
-      }
-
-      throw new Error(`Kein Treffer für ${rawQuery}`);
+      const fallbackObject = { coord: fallbackCoord, displayName: `${address} (Fallback-Ort)`, fallbackUsed: true };
+      cache.set(address, fallbackObject);
+      saveGeocodeCache(cache);
+      return fallbackObject;
     }
 
-    async function geocodePostcode(postcode) {
-      const cacheKey = `geo-plz-v3:${postcode}`;
-      const cached = readCache(cacheKey);
-      if (cached) return cached;
-
+    function loadGeocodeCache() {
+      const map = new Map();
       try {
-        const url = new URL("https://photon.komoot.io/api/");
-        url.searchParams.set("q", `${postcode} Deutschland`);
-        url.searchParams.set("limit", "1");
-        url.searchParams.set("lang", "de");
-
-        const response = await fetch(url.toString(), {
-          headers: { "Accept": "application/json" }
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        const raw = localStorage.getItem("geo_mapping_cache_v2");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          Object.entries(parsed).forEach(([k, v]) => map.set(k, v));
         }
-
-        const data = await response.json();
-        const first = Array.isArray(data.features) ? data.features[0] : null;
-        const coords = first && first.geometry && first.geometry.coordinates;
-        if (Array.isArray(coords) && coords.length >= 2) {
-          const props = first.properties || {};
-          const placeName = cleanCell(props.city || props.name || props.district || props.county);
-          const value = {
-            coord: [Number(coords[1]), Number(coords[0])],
-            displayName: `${postcode}${placeName ? `, ${placeName}` : ""}, Deutschland`,
-            name: postcode,
-            fallbackUsed: false,
-            provider: "photon-postcode"
-          };
-          writeCache(cacheKey, value);
-          return value;
-        }
-      } catch {
-        // Fall through to structured Nominatim lookup for postcodes.
+      } catch (e) {
+        console.error(e);
       }
-
-      await waitForGeocodeTurn();
-
-      const url = new URL("https://nominatim.openstreetmap.org/search");
-      url.searchParams.set("format", "jsonv2");
-      url.searchParams.set("limit", "1");
-      url.searchParams.set("countrycodes", "de");
-      url.searchParams.set("country", "Deutschland");
-      url.searchParams.set("postalcode", postcode);
-      url.searchParams.set("addressdetails", "1");
-      url.searchParams.set("accept-language", "de");
-
-      const response = await fetch(url.toString(), {
-        headers: { "Accept": "application/json" }
-      });
-
-      if (!response.ok) {
-        throw new Error(`PLZ ${postcode} konnte nicht geocodiert werden`);
-      }
-
-      const results = await response.json();
-      if (Array.isArray(results) && results.length) {
-        const first = results[0];
-        const value = {
-          coord: [Number(first.lat), Number(first.lon)],
-          displayName: first.display_name || `${postcode}, Deutschland`,
-          name: postcode,
-          fallbackUsed: false,
-          provider: "nominatim-postcode"
-        };
-        writeCache(cacheKey, value);
-        return value;
-      }
-
-      throw new Error(`PLZ ${postcode} konnte nicht geocodiert werden`);
+      return map;
     }
 
-    function isGermanPostcode(value) {
-      return /^\d{5}$/.test(cleanCell(value));
-    }
-
-    function normalizeQuery(value) {
-      const query = cleanCell(value);
-      if (/\b(deutschland|germany)\b/i.test(query)) return query;
-      return `${query}, Deutschland`;
-    }
-
-    function extractNominatimName(result) {
-      const details = result && result.namedetails ? result.namedetails : {};
-      return cleanCell(details.name || details["name:de"] || result.name || "");
-    }
-
-    function inferFacilityName(geo, target) {
-      if (geo && geo.name && !looksLikeAddressName(geo.name, target)) return geo.name;
-      const firstDisplayPart = cleanCell((geo && geo.displayName ? geo.displayName : "").split(",")[0]);
-      if (firstDisplayPart && !looksLikeAddressName(firstDisplayPart, target)) return firstDisplayPart;
-      return cleanCell(target);
-    }
-
-    function looksLikeAddressName(name, target) {
-      const normalizedName = normalizeForCompare(name);
-      const normalizedTarget = normalizeForCompare(target);
-      return !normalizedName || normalizedTarget.startsWith(normalizedName) || /^\d+[a-z]?$/.test(normalizedName);
-    }
-
-    function normalizeForCompare(value) {
-      return cleanCell(value)
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/straße/g, "strasse")
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim();
-    }
-
-    function readCache(key) {
+    function saveGeocodeCache(map) {
       try {
-        const raw = localStorage.getItem(key);
-        return raw ? JSON.parse(raw) : null;
-      } catch {
-        return null;
-      }
-    }
-
-    function writeCache(key, value) {
-      try {
-        localStorage.setItem(key, JSON.stringify(value));
-      } catch {
-        // Cache is optional; rendering should continue even in private mode.
+        const obj = {};
+        map.forEach((v, k) => { obj[k] = v; });
+        localStorage.setItem("geo_mapping_cache_v2", JSON.stringify(obj));
+      } catch (e) {
+        console.error(e);
       }
     }
 
     function clearGeocodeCache() {
-      try {
-        Object.keys(localStorage)
-          .filter((key) => key.startsWith("geo-map-v3:") || key.startsWith("geo-map-v4:") || key.startsWith("geo-plz-"))
-          .forEach((key) => localStorage.removeItem(key));
-        setStatus("Geocoding-Cache geleert.", 100);
-      } catch {
-        setStatus("Geocoding-Cache konnte nicht geleert werden.", 0);
-      }
+      localStorage.removeItem("geo_mapping_cache_v2");
+      setStatus("Geocoding-Cache wurde geleert. Startpunkte bleiben erhalten.", 100);
     }
 
-    async function waitForGeocodeTurn() {
-      const elapsed = Date.now() - state.lastGeocodeAt;
-      const wait = Math.max(0, 1050 - elapsed);
-      if (wait) await sleep(wait);
-      state.lastGeocodeAt = Date.now();
+    function computeHaversine(coord1, coord2) {
+      const [lat1, lon1] = coord1;
+      const [lat2, lon2] = coord2;
+      const R = 6371;
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    function getFilteredRecords() {
+      if (!state.search) return state.mappedRecords;
+      return state.mappedRecords.filter((r) =>
+        r.label.toLowerCase().includes(state.search) ||
+        r.home.toLowerCase().includes(state.search) ||
+        r.facility.toLowerCase().includes(state.search) ||
+        r.target.toLowerCase().includes(state.search)
+      );
     }
 
     function renderAllLayers() {
-      if (state.engine === "svg") {
-        renderFallbackMap();
-        return;
+      clearDataLayers();
+      if (state.engine === "leaflet") {
+        renderOrientationLeaflet();
+        renderDataLayersLeaflet();
+      } else {
+        renderOrientationSvg();
+        renderDataLayersSvg();
       }
-
-      renderOrientationLayer();
-      renderDataLayers();
     }
 
-    function renderOrientationLayer() {
-      if (state.engine === "svg") {
-        renderFallbackMap();
-        return;
-      }
+    function clearDataLayers() {
+      state.homeMarkers.clear();
+      state.homeSvgMarkers.clear();
+      state.lineMarkers.clear();
+      state.lineSvgMarkers.clear();
+      if (state.engine === "svg") return;
+      state.layers.lines.clearLayers();
+      state.layers.homes.clearLayers();
+      state.layers.targets.clearLayers();
+    }
 
+    function renderOrientationLeaflet() {
+      if (!state.map || !state.settings.orientation) return;
       state.layers.orientation.clearLayers();
-      if (!state.settings.orientation) return;
 
       state.orientation.forEach((point) => {
         const marker = L.circleMarker(point.coord, {
           radius: 7,
           color: "#ffffff",
           weight: 2,
-          fillColor: "#d61f2c",
-          fillOpacity: 0.95
-        });
+          fillColor: "var(--red)",
+          fillOpacity: 1
+        }).addTo(state.layers.orientation);
 
-        if (state.settings.labels) {
-          marker.bindTooltip(point.code, {
-            permanent: true,
-            direction: "top",
-            offset: [0, -8],
-            className: "orientation-label"
-          });
-        }
+        const label = L.tooltip({
+          permanent: true,
+          direction: "top",
+          className: "orientation-label",
+          offset: [0, -6]
+        }).setContent(point.code).setLatLng(point.coord);
+
+        state.layers.orientation.addLayer(label);
 
         attachHover(marker, {
           type: "Orientierungspunkt",
-          title: `${point.code} - ${point.name}`,
-          rows: [
-            ["Adresse", point.address],
-            ["Geocoding", point.fallbackUsed ? "Fallback-Koordinate" : "Nominatim-Treffer"]
-          ],
-          popup: orientationPopup(point)
+          title: `[${point.code}] ${point.name}`,
+          rows: [["Adresse", point.displayName || point.address]],
+          popup: `<div class="popup-title">[${point.code}] ${point.name}</div><div class="popup-row">${point.displayName || point.address}</div>`
         });
-
-        marker.addTo(state.layers.orientation);
       });
     }
 
-    function renderDataLayers() {
-      if (state.engine === "svg") {
-        renderFallbackMap();
-        return;
-      }
+    function renderDataLayersLeaflet() {
+      if (!state.map) return;
+      const filtered = getFilteredRecords();
 
-      clearDataLayers();
-      state.homeMarkers.clear();
+      const homeClusters = new Map();
+      const targetClusters = new Map();
+      const homeClusterByRecordId = new Map();
+      const targetClusterByRecordId = new Map();
 
-      const records = filteredRecords();
-      const homeClusters = buildHomeClusters(records);
-      const homeClusterByRecordId = indexClustersByRecordId(homeClusters);
-      const targetClusters = buildTargetClusters(records);
-      const targetClusterByRecordId = indexClustersByRecordId(targetClusters);
+      filtered.forEach((record) => {
+        const homeKey = record.homeGeo.coord.join(",");
+        if (!homeClusters.has(homeKey)) {
+          homeClusters.set(homeKey, {
+            coord: record.homeGeo.coord,
+            displayCoord: [...record.homeGeo.coord],
+            postcode: record.home.match(/\d+/)?.[0] || record.home,
+            count: 0,
+            records: []
+          });
+        }
+        const hClust = homeClusters.get(homeKey);
+        hClust.count += 1;
+        hClust.records.push(record);
+        homeClusterByRecordId.set(record.id, hClust);
+
+        const targetKey = record.targetGeo.coord.join(",");
+        if (!targetClusters.has(targetKey)) {
+          targetClusters.set(targetKey, {
+            coord: record.targetGeo.coord,
+            displayCoord: [...record.targetGeo.coord],
+            facilityName: record.facility || record.target,
+            count: 0,
+            records: []
+          });
+        }
+        const tClust = targetClusters.get(targetKey);
+        tClust.count += 1;
+        tClust.records.push(record);
+        targetClusterByRecordId.set(record.id, tClust);
+      });
+
+      const overlapSet = new Set();
+      homeClusters.forEach((hClust) => {
+        const key = hClust.coord.join(",");
+        if (targetClusters.has(key)) overlapSet.add(key);
+      });
+
+      overlapSet.forEach((key) => {
+        const hClust = homeClusters.get(key);
+        const tClust = targetClusters.get(key);
+        if (hClust && tClust) {
+          hClust.displayCoord[1] -= 0.0016;
+          tClust.displayCoord[1] += 0.0016;
+        }
+      });
 
       if (state.settings.lines) {
-        records.forEach((record) => {
-          if (!record.homeGeo || !record.targetGeo) return;
+        filtered.forEach((record) => {
           const homeCluster = homeClusterByRecordId.get(record.id);
           const cluster = targetClusterByRecordId.get(record.id);
-          L.polyline([homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, cluster ? cluster.displayCoord : record.targetGeo.coord], { 
-            color: "#4a5568",   // Dunkleres Graublau (oder z. B. "#1f6feb" für Blau)
-            weight: 1.35, 
-            opacity: 0.5, 
+          const polyline = L.polyline([
+            homeCluster ? homeCluster.displayCoord : record.homeGeo.coord,
+            cluster ? cluster.displayCoord : record.targetGeo.coord
+          ], {
+            color: "#718096",
+            weight: 1.35,
+            opacity: 0.34,
             dashArray: "5 7"
           }).addTo(state.layers.lines);
+
+          state.lineMarkers.set(record.id, polyline);
         });
       }
 
       if (state.settings.homes) {
         homeClusters.forEach((cluster) => {
           const marker = L.circleMarker(cluster.displayCoord, {
-            radius: 6,
+            radius: 8 + Math.min(10, cluster.count * 0.4),
             color: "#ffffff",
             weight: 2,
-            fillColor: "#1f6feb",
-            fillOpacity: 0.92
-          });
+            fillColor: "var(--blue)",
+            fillOpacity: 0.95
+          }).addTo(state.layers.homes);
+
+          cluster.records.forEach((r) => state.homeMarkers.set(r.id, marker));
 
           if (state.settings.labels) {
-            marker.bindTooltip(String(cluster.count), {
+            const label = L.tooltip({
               permanent: true,
               direction: "right",
-              offset: [8, 0],
-              className: "distance-label home-label"
-            });
+              className: "distance-label home-label",
+              offset: [6, 0]
+            }).setContent(String(cluster.count)).setLatLng(cluster.displayCoord);
+            state.layers.homes.addLayer(label);
           }
 
           attachHover(marker, {
@@ -2045,30 +1744,31 @@
             title: `PLZ ${cluster.postcode}`,
             rows: homeClusterFocusRows(cluster),
             popup: homeClusterPopup(cluster)
+          }, {
+            onEnter: () => highlightLines(cluster.records.map((r) => r.id), true),
+            onLeave: () => highlightLines(cluster.records.map((r) => r.id), false)
           });
-
-          cluster.records.forEach((record) => state.homeMarkers.set(record.id, marker));
-          marker.addTo(state.layers.homes);
         });
       }
 
       if (state.settings.targets) {
         targetClusters.forEach((cluster) => {
           const marker = L.circleMarker(cluster.displayCoord, {
-            radius: 6,
+            radius: 8 + Math.min(10, cluster.count * 0.4),
             color: "#ffffff",
             weight: 2,
-            fillColor: "#121212",
-            fillOpacity: 0.96
-          });
+            fillColor: "var(--black)",
+            fillOpacity: 0.95
+          }).addTo(state.layers.targets);
 
           if (state.settings.labels) {
-            marker.bindTooltip(String(cluster.count), {
+            const label = L.tooltip({
               permanent: true,
               direction: "left",
-              offset: [-8, 0],
-              className: "distance-label target-label"
-            });
+              className: "distance-label target-label",
+              offset: [-6, 0]
+            }).setContent(String(cluster.count)).setLatLng(cluster.displayCoord);
+            state.layers.targets.addLayer(label);
           }
 
           attachHover(marker, {
@@ -2077,311 +1777,438 @@
             rows: clusterFocusRows(cluster),
             popup: clusterPopup(cluster)
           }, {
-            onEnter: () => highlightHomes(cluster.records.map((record) => record.id), true),
-            onLeave: () => highlightHomes(cluster.records.map((record) => record.id), false)
-          });
-
-          marker.addTo(state.layers.targets);
-        });
-      }
-    }
-
-    function clearDataLayers() {
-      if (state.engine === "svg") return;
-      state.layers.lines.clearLayers();
-      state.layers.homes.clearLayers();
-      state.layers.targets.clearLayers();
-    }
-
-    function highlightHome(recordId, active) {
-      if (state.engine === "leaflet") {
-        const marker = state.homeMarkers.get(recordId);
-        if (!marker) return;
-        marker.setRadius(active ? 6.6 : 6);
-        marker.setStyle({
-          weight: active ? 3 : 2,
-          fillOpacity: active ? 1 : 0.92
-        });
-        if (active && marker.bringToFront) marker.bringToFront();
-        return;
-      }
-
-      const marker = state.homeSvgMarkers.get(recordId);
-      if (!marker) return;
-      marker.circle.setAttribute("r", active ? String(marker.radius * 1.1) : String(marker.radius));
-      marker.circle.setAttribute("stroke-width", active ? "3" : "2.4");
-      if (active) marker.group.parentNode.appendChild(marker.group);
-    }
-
-    function renderFallbackMap() {
-      if (!state.fallback.svg) return;
-
-      const svg = state.fallback.svg;
-      const records = filteredRecords();
-      const homeClusters = buildHomeClusters(records);
-      const homeClusterByRecordId = indexClustersByRecordId(homeClusters);
-      const targetClusters = buildTargetClusters(records);
-      const targetClusterByRecordId = indexClustersByRecordId(targetClusters);
-      const visiblePoints = [];
-      state.homeSvgMarkers.clear();
-
-      if (state.settings.orientation) {
-        state.orientation.forEach((point) => visiblePoints.push(point.coord));
-      }
-      if (state.settings.homes) {
-        homeClusters.forEach((cluster) => visiblePoints.push(cluster.displayCoord));
-      }
-      if (state.settings.targets) {
-        targetClusters.forEach((cluster) => visiblePoints.push(cluster.displayCoord));
-      }
-
-      const bounds = createGeoBounds(visiblePoints);
-      svg.innerHTML = "";
-      drawFallbackBase(svg);
-
-      if (state.settings.lines) {
-        records.forEach((record) => {
-          if (!record.homeGeo || !record.targetGeo) return;
-          const homeCluster = homeClusterByRecordId.get(record.id);
-          const cluster = targetClusterByRecordId.get(record.id);
-          const start = projectPoint(homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, bounds);
-          const end = projectPoint(cluster ? cluster.displayCoord : record.targetGeo.coord, bounds);
-          addSvg(svg, "path", {
-            d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
-            class: "fallback-line"
-          });
-        });
-      }
-
-      if (state.settings.orientation) {
-        state.orientation.forEach((point) => {
-          const projected = projectPoint(point.coord, bounds);
-          addFallbackMarker({
-            svg,
-            x: projected.x,
-            y: projected.y,
-            className: "orientation",
-            label: point.code,
-            labelSide: "top",
-            payload: {
-              type: "Orientierungspunkt",
-              title: `${point.code} - ${point.name}`,
-              rows: [
-                ["Adresse", point.address],
-                ["Geocoding", point.fallbackUsed ? "Fallback-Koordinate" : "Nominatim-Treffer"]
-              ],
-              html: orientationPopup(point)
+            onEnter: () => {
+              highlightHomes(cluster.records.map((record) => record.id), true);
+              highlightLines(cluster.records.map((record) => record.id), true);
+            },
+            onLeave: () => {
+              highlightHomes(cluster.records.map((record) => record.id), false);
+              highlightLines(cluster.records.map((record) => record.id), false);
             }
           });
+        });
+      }
+    }
+
+    function highlightHomes(recordIds, active) {
+      recordIds.forEach((recordId) => {
+        if (state.engine === "leaflet" && state.homeMarkers.has(recordId)) {
+          const marker = state.homeMarkers.get(recordId);
+          if (active) {
+            marker.setStyle({ fillColor: "var(--green)", weight: 3 });
+          } else {
+            marker.setStyle({ fillColor: "var(--blue)", weight: 2 });
+          }
+        }
+        if (state.engine === "svg" && state.homeSvgMarkers.has(recordId)) {
+          const element = state.homeSvgMarkers.get(recordId);
+          if (active) {
+            element.setAttribute("fill", "var(--green)");
+            element.setAttribute("stroke-width", "3.5");
+          } else {
+            element.setAttribute("fill", "var(--blue)");
+            element.setAttribute("stroke-width", "2.4");
+          }
+        }
+      });
+    }
+
+    function highlightLines(recordIds, active) {
+      recordIds.forEach((recordId) => {
+        // 1. Leaflet Layer Verbindungslinien stylen
+        if (state.engine === "leaflet" && state.lineMarkers.has(recordId)) {
+          const line = state.lineMarkers.get(recordId);
+          if (active) {
+            line.setStyle({
+              color: "var(--blue)", // Hebt die betroffene Linie farblich hervor (passend zu Wohnort)
+              weight: 3.2,          // Erhöht die Strichstärke deutlich
+              opacity: 1.0,         // ENTFERNT DIE DECKKRAFT (Volle Sichtbarkeit)
+              dashArray: null       // Macht die Linie durchgezogen für besseren Kontrast
+            });
+            line.bringToFront();
+          } else {
+            line.setStyle({
+              color: "#718096",
+              weight: 1.35,
+              opacity: 0.34,
+              dashArray: "5 7"
+            });
+          }
+        }
+
+        // 2. SVG-Fallback Karten-Verbindungslinien stylen
+        if (state.engine === "svg" && state.lineSvgMarkers.has(recordId)) {
+          const lineNode = state.lineSvgMarkers.get(recordId);
+          if (active) {
+            lineNode.style.stroke = "var(--blue)";
+            lineNode.style.strokeWidth = "3.2px";
+            lineNode.style.opacity = "1.0"; // ENTFERNT DIE DECKKRAFT im Fallback
+            lineNode.setAttribute("stroke-dasharray", "none");
+            // Element nach vorne rücken in der DOM-Hierarchie
+            if (lineNode.parentNode) lineNode.parentNode.appendChild(lineNode);
+          } else {
+            lineNode.style.stroke = "";
+            lineNode.style.strokeWidth = "";
+            lineNode.style.opacity = "";
+            lineNode.removeAttribute("stroke-dasharray");
+          }
+        }
+      });
+    }
+
+    function homeClusterFocusRows(cluster) {
+      const distinctTargets = new Set(cluster.records.map((r) => r.facility || r.target));
+      return [
+        ["Anzahl Personen", String(cluster.count)],
+        ["Ziele", [...distinctTargets].slice(0, 3).join(", ") + (distinctTargets.size > 3 ? "..." : "")]
+      ];
+    }
+
+    function homeClusterPopup(cluster) {
+      const itemsHtml = cluster.records.map((r) => `<li><strong>${escapeHtml(r.label)}</strong> &rarr; ${escapeHtml(r.facility)} (${formatKmCompact(r.distance)})</li>`).join("");
+      return `
+        <div class="popup-title">Wohnort PLZ ${escapeHtml(cluster.postcode)}</div>
+        <div class="popup-row">Gemeinsame Zuordnungen: <strong>${cluster.count}</strong></div>
+        <ul class="popup-list" style="margin:6px 0 0; padding-left:16px; max-height:120px; overflow:auto;">
+          ${itemsHtml}
+        </ul>
+      `;
+    }
+
+    function clusterFocusRows(cluster) {
+      const kmValues = cluster.records.map((r) => r.distance).filter(Number.isFinite);
+      const avgKm = kmValues.length ? kmValues.reduce((a, b) => a + b, 0) / kmValues.length : 0;
+      return [
+        ["Zugeordnete Personen", String(cluster.count)],
+        ["Ø Distanz", formatKm(avgKm)],
+        ["Adresse", cluster.records[0]?.target || "Unbekannte Adresse"]
+      ];
+    }
+
+    function clusterPopup(cluster) {
+      const itemsHtml = cluster.records.map((r) => `<li><strong>${escapeHtml(r.label)}</strong> (aus PLZ ${escapeHtml(r.home.match(/\\d+/)?.[0] || \"-\")}): ${formatKmCompact(r.distance)}</li>`).join("");
+      return `
+        <div class="popup-title">${escapeHtml(cluster.facilityName)}</div>
+        <div class="popup-row" style="margin-bottom:6px;">${escapeHtml(cluster.records[0]?.target || \"\")}</div>
+        <div class="popup-list-title">Zugeordnete Personen (${cluster.count}):</div>
+        <ul class="popup-list" style="margin:4px 0 0; padding-left:16px; max-height:110px; overflow:auto;">
+          ${itemsHtml}
+        </ul>
+      `;
+    }
+
+    function renderDataLayers() {
+      renderAllLayers();
+    }
+
+    function renderOrientationSvg() {
+      if (state.engine !== "svg" || !state.settings.orientation) return;
+      const svg = state.fallback.svg;
+      const bounds = getSvgBounds();
+
+      state.orientation.forEach((point) => {
+        const projected = projectPoint(point.coord, bounds);
+        addSvg(svg, "circle", {
+          cx: projected.x,
+          cy: projected.y,
+          r: "6",
+          class: "fallback-point orientation"
+        });
+
+        const bg = addSvg(svg, "rect", { class: "fallback-label-bg orientation" });
+        const text = addSvg(svg, "text", {
+          x: projected.x,
+          y: projected.y - 15,
+          class: "fallback-label orientation",
+          "text-anchor": "middle"
+        });
+        text.textContent = point.code;
+
+        const textWidth = Math.max(28, point.code.length * 7.5);
+        updateSvgAttributes(bg, {
+          x: projected.x - textWidth / 2 - 4,
+          y: projected.y - 25,
+          width: textWidth + 8,
+          height: 18,
+          rx: 4
+        });
+
+        attachFallbackHover(text, {
+          type: "Orientierungspunkt",
+          title: `[${point.code}] ${point.name}`,
+          rows: [["Adresse", point.displayName || point.address]]
+        });
+      });
+    }
+
+    function renderDataLayersSvg() {
+      if (state.engine !== "svg") return;
+      const svg = state.fallback.svg;
+      svg.innerHTML = "";
+
+      const bounds = getSvgBounds();
+      const filtered = getFilteredRecords();
+
+      addSvg(svg, "text", { x: 20, y: 35, class: "fallback-caption" }).textContent = "Statische SVG-Ersatzkarte (Offline)";
+
+      const homeClusters = new Map();
+      const targetClusters = new Map();
+      const homeClusterByRecordId = new Map();
+      const targetClusterByRecordId = new Map();
+
+      filtered.forEach((record) => {
+        const homeKey = record.homeGeo.coord.join(",");
+        if (!homeClusters.has(homeKey)) {
+          homeClusters.set(homeKey, {
+            coord: record.homeGeo.coord,
+            displayCoord: [...record.homeGeo.coord],
+            postcode: record.home.match(/\d+/)?.[0] || record.home,
+            count: 0,
+            records: []
+          });
+        }
+        const hClust = homeClusters.get(homeKey);
+        hClust.count += 1;
+        hClust.records.push(record);
+        homeClusterByRecordId.set(record.id, hClust);
+
+        const targetKey = record.targetGeo.coord.join(",");
+        if (!targetClusters.has(targetKey)) {
+          targetClusters.set(targetKey, {
+            coord: record.targetGeo.coord,
+            displayCoord: [...record.targetGeo.coord],
+            facilityName: record.facility || record.target,
+            count: 0,
+            records: []
+          });
+        }
+        const tClust = targetClusters.get(targetKey);
+        tClust.count += 1;
+        tClust.records.push(record);
+        targetClusterByRecordId.set(record.id, tClust);
+      });
+
+      const overlapSet = new Set();
+      homeClusters.forEach((hClust) => {
+        if (targetClusters.has(hClust.coord.join(","))) overlapSet.add(hClust.coord.join(","));
+      });
+
+      overlapSet.forEach((key) => {
+        const hClust = homeClusters.get(key);
+        const tClust = targetClusters.get(key);
+        if (hClust && tClust) {
+          hClust.displayCoord[1] -= 0.0022;
+          tClust.displayCoord[1] += 0.0022;
+        }
+      });
+
+      if (state.settings.lines) {
+        filtered.forEach((record) => {
+          const homeCluster = homeClusterByRecordId.get(record.id);
+          const cluster = targetClusterByRecordId.get(record.id);
+          const pHome = projectPoint(homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, bounds);
+          const pTarget = projectPoint(cluster ? cluster.displayCoord : record.targetGeo.coord, bounds);
+
+          const lineElement = addSvg(svg, "line", {
+            x1: pHome.x,
+            y1: pHome.y,
+            x2: pTarget.x,
+            y2: pTarget.y,
+            class: "fallback-line"
+          });
+
+          state.lineSvgMarkers.set(record.id, lineElement);
         });
       }
 
       if (state.settings.homes) {
         homeClusters.forEach((cluster) => {
           const projected = projectPoint(cluster.displayCoord, bounds);
-          const marker = addFallbackMarker({
-            svg,
-            x: projected.x,
-            y: projected.y,
-            className: "home",
-            label: String(cluster.count),
-            labelSide: "right",
-            payload: {
-              type: "Wohnort-Cluster",
-              title: `PLZ ${cluster.postcode}`,
-              rows: homeClusterFocusRows(cluster),
-              html: homeClusterPopup(cluster)
-            }
+          const radius = 7 + Math.min(10, cluster.count * 0.4);
+
+          const circle = addSvg(svg, "circle", {
+            cx: projected.x,
+            cy: projected.y,
+            r: String(radius),
+            class: "fallback-point home"
           });
-          cluster.records.forEach((record) => state.homeSvgMarkers.set(record.id, marker));
+
+          cluster.records.forEach((r) => state.homeSvgMarkers.set(r.id, circle));
+
+          if (state.settings.labels) {
+            const bg = addSvg(svg, "rect", { class: "fallback-label-bg home" });
+            const text = addSvg(svg, "text", {
+              x: projected.x + radius + 9,
+              y: projected.y,
+              class: "fallback-label home",
+              "text-anchor": "start"
+            });
+            text.textContent = String(cluster.count);
+
+            updateSvgAttributes(bg, {
+              x: projected.x + radius + 5,
+              y: projected.y - 8,
+              width: 18,
+              height: 15,
+              rx: 3
+            });
+          }
+
+          attachFallbackHover(circle, {
+            type: "Wohnort-Cluster",
+            title: `PLZ ${cluster.postcode}`,
+            rows: homeClusterFocusRows(cluster)
+          }, {
+            onEnter: () => highlightLines(cluster.records.map((r) => r.id), true),
+            onLeave: () => highlightLines(cluster.records.map((r) => r.id), false)
+          });
         });
       }
 
       if (state.settings.targets) {
         targetClusters.forEach((cluster) => {
           const projected = projectPoint(cluster.displayCoord, bounds);
-          addFallbackMarker({
-            svg,
-            x: projected.x,
-            y: projected.y,
-            className: "target",
-            label: String(cluster.count),
-            labelSide: "left",
-            payload: {
-              type: "Zielort-Cluster",
-              title: cluster.facilityName,
-              rows: clusterFocusRows(cluster),
-              html: clusterPopup(cluster)
+          const radius = 7 + Math.min(10, cluster.count * 0.4);
+
+          const circle = addSvg(svg, "circle", {
+            cx: projected.x,
+            cy: projected.y,
+            r: String(radius),
+            class: "fallback-point target"
+          });
+
+          if (state.settings.labels) {
+            const bg = addSvg(svg, "rect", { class: "fallback-label-bg target" });
+            const text = addSvg(svg, "text", {
+              x: projected.x - radius - 9,
+              y: projected.y,
+              class: "fallback-label target",
+              "text-anchor": "end"
+            });
+            text.textContent = String(cluster.count);
+
+            updateSvgAttributes(bg, {
+              x: projected.x - radius - 23,
+              y: projected.y - 8,
+              width: 18,
+              height: 15,
+              rx: 3
+            });
+          }
+
+          attachFallbackHover(circle, {
+            type: "Zielort-Cluster",
+            title: cluster.facilityName,
+            rows: clusterFocusRows(cluster)
+          }, {
+            onEnter: () => {
+              highlightHomes(cluster.records.map((record) => record.id), true);
+              highlightLines(cluster.records.map((record) => record.id), true);
             },
-            onEnter: () => highlightHomes(cluster.records.map((record) => record.id), true),
-            onLeave: () => highlightHomes(cluster.records.map((record) => record.id), false)
+            onLeave: () => {
+              highlightHomes(cluster.records.map((record) => record.id), false);
+              highlightLines(cluster.records.map((record) => record.id), false);
+            }
           });
         });
       }
-
-      addSvg(svg, "text", {
-        x: 30,
-        y: 690,
-        class: "fallback-caption"
-      }, state.engine === "svg" ? "Fallback-Karte ohne externe Kartenskripte" : "");
     }
 
-    function drawFallbackBase(svg) {
-      addSvg(svg, "path", {
-        d: "M 170 120 C 260 60, 405 72, 515 116 C 690 185, 795 320, 805 455 C 812 571, 702 632, 560 645 C 390 661, 236 610, 165 500 C 98 397, 78 214, 170 120 Z",
-        class: "fallback-region"
-      });
-
-      for (let x = 120; x <= 880; x += 120) {
-        addSvg(svg, "line", { x1: x, y1: 70, x2: x, y2: 650, class: "fallback-grid" });
+    function getSvgBounds() {
+      const coords = [];
+      if (state.settings.orientation) {
+        state.orientation.forEach((p) => coords.push(p.coord));
       }
-      for (let y = 120; y <= 620; y += 100) {
-        addSvg(svg, "line", { x1: 80, y1: y, x2: 920, y2: y, class: "fallback-grid" });
-      }
-    }
-
-    function addFallbackMarker({ svg, x, y, className, label, labelSide, payload, onEnter, onLeave }) {
-      const group = addSvg(svg, "g", { tabindex: "0" });
-      const radius = className === "orientation" ? 7 : 6;
-      const circle = addSvg(group, "circle", {
-        cx: x,
-        cy: y,
-        r: radius,
-        class: `fallback-point ${className}`
-      });
-
-      if (state.settings.labels && label) {
-        const labelMetrics = fallbackLabelMetrics(x, y, label, labelSide);
-        addSvg(group, "rect", {
-          x: labelMetrics.bgX,
-          y: labelMetrics.bgY,
-          width: labelMetrics.width,
-          height: 22,
-          rx: 4,
-          class: `fallback-label-bg ${className}`
+      if (state.settings.homes || state.settings.targets || state.settings.lines) {
+        getFilteredRecords().forEach((r) => {
+          if (r.homeGeo) coords.push(r.homeGeo.coord);
+          if (r.targetGeo) coords.push(r.targetGeo.coord);
         });
-        addSvg(group, "text", {
-          x: labelMetrics.textX,
-          y: labelMetrics.textY,
-          class: `fallback-label ${className}`
-        }, label);
       }
 
-      const show = (event) => {
-        setFocus(payload.type, payload.title, payload.rows);
-        if (onEnter) onEnter();
-        if (typeof event.clientX === "number") showFallbackTooltip(event, payload.html);
-      };
-      const hide = () => {
-        if (onLeave) onLeave();
-        hideFallbackTooltip();
-      };
-      group.addEventListener("mouseenter", show);
-      group.addEventListener("mousemove", (event) => showFallbackTooltip(event, payload.html));
-      group.addEventListener("mouseleave", hide);
-      group.addEventListener("focus", (event) => show(event));
-      group.addEventListener("blur", hide);
-      circle.addEventListener("click", () => setFocus(payload.type, payload.title, payload.rows));
+      if (!coords.length) return { minLat: 51.05, maxLat: 51.35, minLon: 6.25, maxLon: 6.95 };
 
-      return { group, circle, radius };
-    }
+      let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+      coords.forEach(([lat, lon]) => {
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+      });
 
-    function fallbackLabelMetrics(x, y, label, side) {
-      const width = Math.max(34, label.length * 7 + 15);
-      if (side === "left") {
-        return { bgX: x - width - 14, bgY: y - 11, textX: x - width - 6, textY: y + 0.5, width };
-      }
-      if (side === "top") {
-        return { bgX: x - width / 2, bgY: y - 34, textX: x - width / 2 + 7, textY: y - 23, width };
-      }
-      return { bgX: x + 12, bgY: y - 11, textX: x + 19, textY: y + 0.5, width };
-    }
+      const padLat = Math.max(0.04, (maxLat - minLat) * 0.15);
+      const padLon = Math.max(0.05, (maxLon - minLon) * 0.15);
 
-    function showFallbackTooltip(event, html) {
-      if (!state.fallback.tooltip || !state.fallback.root) return;
-      const rect = state.fallback.root.getBoundingClientRect();
-      state.fallback.tooltip.innerHTML = html;
-      state.fallback.tooltip.style.display = "block";
-      const maxLeft = Math.max(8, rect.width - 300);
-      const maxTop = Math.max(8, rect.height - 150);
-      state.fallback.tooltip.style.left = `${Math.min(maxLeft, Math.max(8, event.clientX - rect.left + 14))}px`;
-      state.fallback.tooltip.style.top = `${Math.min(maxTop, Math.max(8, event.clientY - rect.top + 14))}px`;
-    }
-
-    function hideFallbackTooltip() {
-      if (state.fallback.tooltip) state.fallback.tooltip.style.display = "none";
-    }
-
-    function createGeoBounds(points) {
-      const list = points.length ? points : [[51.19, 6.56], ...ORIENTATION_POINTS.map((point) => point.fallback)];
-      const lats = list.map((point) => point[0]);
-      const lngs = list.map((point) => point[1]);
-      const latPadding = Math.max(0.025, (Math.max(...lats) - Math.min(...lats)) * 0.18);
-      const lngPadding = Math.max(0.025, (Math.max(...lngs) - Math.min(...lngs)) * 0.18);
       return {
-        minLat: Math.min(...lats) - latPadding,
-        maxLat: Math.max(...lats) + latPadding,
-        minLng: Math.min(...lngs) - lngPadding,
-        maxLng: Math.max(...lngs) + lngPadding
+        minLat: minLat - padLat,
+        maxLat: maxLat + padLat,
+        minLon: minLon - padLon,
+        maxLon: maxLon + padLon
       };
     }
 
     function projectPoint(coord, bounds) {
+      const [lat, lon] = coord;
       const width = 1000;
       const height = 720;
-      const pad = 72;
-      const lngSpan = Math.max(0.0001, bounds.maxLng - bounds.minLng);
-      const latSpan = Math.max(0.0001, bounds.maxLat - bounds.minLat);
-      return {
-        x: pad + ((coord[1] - bounds.minLng) / lngSpan) * (width - pad * 2),
-        y: pad + ((bounds.maxLat - coord[0]) / latSpan) * (height - pad * 2)
-      };
+
+      const x = ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * (width - 120) + 60;
+      const y = height - (((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * (height - 120) + 60);
+
+      return { x: Math.max(10, Math.min(width - 10, x)), y: Math.max(10, Math.min(height - 10, y)) };
     }
 
-    function addSvg(parent, tagName, attributes, text) {
+    function addSvg(parent, tagName, attrs) {
       const element = document.createElementNS("http://www.w3.org/2000/svg", tagName);
-      Object.entries(attributes || {}).forEach(([key, value]) => element.setAttribute(key, value));
-      if (text) element.textContent = text;
+      updateSvgAttributes(element, attrs);
       parent.appendChild(element);
       return element;
     }
 
-    function attachHover(layer, payload, hooks = {}) {
-      layer.bindPopup(payload.popup, {
-        closeButton: false,
-        autoPan: false,
-        className: "insight-popup"
-      });
-
-      layer.on("mouseover", () => {
-        setFocus(payload.type, payload.title, payload.rows);
-        if (hooks.onEnter) hooks.onEnter();
-        layer.openPopup();
-      });
-      layer.on("mouseout", () => {
-        if (hooks.onLeave) hooks.onLeave();
-        layer.closePopup();
-      });
-      layer.on("click", () => {
-        setFocus(payload.type, payload.title, payload.rows);
+    function updateSvgAttributes(element, attrs) {
+      if (!attrs) return;
+      Object.entries(attrs).forEach(([k, v]) => {
+        if (v !== undefined && v !== null) element.setAttribute(k, String(v));
       });
     }
 
-    function setFocus(type, title, rows) {
-      dom.focusType.textContent = type;
-      dom.focusTitle.textContent = title;
-      dom.focusMeta.innerHTML = rows
-        .map((row) => {
-          if (row && typeof row === "object" && !Array.isArray(row) && row.heading) {
-            return `<span><strong>${escapeHtml(row.heading)}</strong></span>`;
-          }
-          if (Array.isArray(row)) {
-            const [label, value] = row;
-            return `<span><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</span>`;
-          }
-          return `<span>${escapeHtml(row)}</span>`;
-        })
-        .join("");
+    function attachHover(marker, data, hooks = {}) {
+      marker.on("mouseover", () => {
+        setFocus(data);
+        if (hooks.onEnter) hooks.onEnter();
+      });
+      marker.on("mouseout", () => {
+        resetFocus();
+        if (hooks.onLeave) hooks.onLeave();
+      });
+      if (data.popup) {
+        marker.bindPopup(data.popup, { className: "insight-popup", closeButton: false });
+        marker.on("click", () => marker.openPopup());
+      }
+    }
+
+    function attachFallbackHover(element, data, hooks = {}) {
+      element.addEventListener("mouseenter", (e) => {
+        setFocus(data);
+        showFallbackTooltip(e, data);
+        if (hooks.onEnter) hooks.onEnter();
+      });
+
+      element.addEventListener("mousemove", (e) => {
+        positionFallbackTooltip(e);
+      });
+
+      element.addEventListener("mouseleave", () => {
+        resetFocus();
+        hideFallbackTooltip();
+        if (hooks.onLeave) hooks.onLeave();
+      });
+    }
+
+    function setFocus(data) {
+      dom.focusType.textContent = data.type;
+      dom.focusTitle.textContent = data.title;
+      dom.focusMeta.innerHTML = data.rows.map(([k, v]) => `<span><strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)}</span>`).join("");
     }
 
     function resetFocus() {
@@ -2390,49 +2217,50 @@
       dom.focusMeta.innerHTML = "<span>Die indirekte Beschriftung aus Spalte A erscheint hier und am Kartenpunkt.</span>";
     }
 
-    function pointPopup(type, title, rows) {
-      return `
-        <p class="popup-title">${escapeHtml(title)}</p>
-        <p class="popup-row"><strong>Typ:</strong> ${escapeHtml(type)}</p>
-        ${rows.map((row) => {
-          if (row && typeof row === "object" && !Array.isArray(row) && row.heading) {
-            return `<p class="popup-row"><strong>${escapeHtml(row.heading)}</strong></p>`;
-          }
-          if (Array.isArray(row)) {
-            const [label, value] = row;
-            return `<p class="popup-row"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`;
-          }
-          return `<p class="popup-row">${escapeHtml(row)}</p>`;
-        }).join("")}
-      `;
+    function showFallbackTooltip(event, data) {
+      const tip = state.fallback.tooltip;
+      if (!tip) return;
+
+      const rowsHtml = data.rows.map(([k, v]) => `<div><strong>${escapeHtml(k)}:</strong> ${escapeHtml(v)}</div>`).join("");
+      tip.innerHTML = `<div style="font-weight:800; margin-bottom:4px;">${escapeHtml(data.title)}</div>${rowsHtml}`;
+      tip.style.display = "block";
+      positionFallbackTooltip(event);
     }
 
-    function orientationPopup(point) {
-      return `
-        <p class="popup-title">${escapeHtml(point.code)} - ${escapeHtml(point.name)}</p>
-        <p class="popup-row"><strong>Adresse:</strong> ${escapeHtml(point.address)}</p>
-      `;
+    function positionFallbackTooltip(event) {
+      const tip = state.fallback.tooltip;
+      if (!tip || !state.fallback.root) return;
+
+      const rect = state.fallback.root.getBoundingClientRect();
+      const x = event.clientX - rect.left + 14;
+      const y = event.clientY - rect.top + 14;
+
+      tip.style.left = `${x}px`;
+      tip.style.top = `${y}px`;
     }
 
-    function filteredRecords() {
-      if (!state.search) return state.mappedRecords;
-      return state.mappedRecords.filter((record) => {
-        const haystack = `${record.term} ${record.home} ${record.facilityName || ""} ${record.target}`.toLowerCase();
-        return haystack.includes(state.search);
-      });
+    function hideFallbackTooltip() {
+      const tip = state.fallback.tooltip;
+      if (tip) tip.style.display = "none";
     }
 
     function updateMetrics() {
-      const visible = filteredRecords();
-      const distances = visible
-        .map((record) => record.homeTargetKm)
-        .filter((value) => Number.isFinite(value));
-      const avg = distances.length ? distances.reduce((sum, value) => sum + value, 0) / distances.length : null;
-      const max = distances.length ? Math.max(...distances) : null;
+      const filtered = getFilteredRecords();
+      dom.metricRecords.textContent = String(filtered.length);
 
-      dom.metricRecords.textContent = String(visible.length || state.records.length || 0);
-      dom.metricAvg.textContent = avg === null ? "-" : formatKm(avg);
-      dom.metricMax.textContent = max === null ? "-" : formatKm(max);
+      const kmValues = filtered.map((r) => r.distance).filter(Number.isFinite);
+      if (kmValues.length) {
+        const sum = kmValues.reduce((a, b) => a + b, 0);
+        const avg = sum / kmValues.length;
+        const max = Math.max(...kmValues);
+
+        dom.metricAvg.textContent = formatKmCompact(avg);
+        dom.metricMax.textContent = formatKmCompact(max);
+      } else {
+        dom.metricAvg.textContent = "-";
+        dom.metricMax.textContent = "-";
+      }
+
       dom.metricIssues.textContent = String(state.issues.length);
     }
 
@@ -2441,72 +2269,18 @@
         dom.issuesList.innerHTML = "<span>Keine offenen Geocoding-Treffer.</span>";
         return;
       }
-
-      const uniqueIssues = [...new Set(state.issues)].slice(0, 30);
-      dom.issuesList.innerHTML = uniqueIssues
-        .map((issue) => `<div class="issue-item">${escapeHtml(issue)}</div>`)
-        .join("");
+      dom.issuesList.innerHTML = state.issues.map((issue) => `<div class="issue-item">${escapeHtml(issue)}</div>`).join("");
     }
 
     function fitCurrentBounds() {
-      if (state.engine === "svg") {
-        renderFallbackMap();
-        return;
+      if (state.engine === "leaflet" && state.map) {
+        const group = L.featureGroup([state.layers.homes, state.layers.targets, state.layers.orientation]);
+        if (group.getLayers().length > 0) {
+          state.map.fitBounds(group.getBounds().pad(0.08));
+        }
+      } else if (state.engine === "svg") {
+        renderAllLayers();
       }
-
-      const bounds = [];
-
-      if (state.settings.orientation) {
-        state.orientation.forEach((point) => bounds.push(point.coord));
-      }
-
-      const records = filteredRecords();
-      const homeClusters = buildHomeClusters(records);
-      const targetClusters = buildTargetClusters(records);
-
-      if (state.settings.homes) {
-        homeClusters.forEach((cluster) => bounds.push(cluster.displayCoord));
-      }
-      if (state.settings.targets) {
-        targetClusters.forEach((cluster) => bounds.push(cluster.displayCoord));
-      }
-
-      if (!bounds.length) {
-        state.map.setView([51.19, 6.56], 10);
-        return;
-      }
-
-      state.map.fitBounds(bounds, {
-        paddingTopLeft: [40, 40],
-        paddingBottomRight: [40, 40],
-        maxZoom: 13
-      });
-    }
-
-    function findNearestOrientation(coord) {
-      if (!state.orientation.length) return null;
-      return state.orientation
-        .map((point) => ({
-          ...point,
-          distanceKm: haversineKm(coord, point.coord)
-        }))
-        .sort((a, b) => a.distanceKm - b.distanceKm)[0];
-    }
-
-    function haversineKm(a, b) {
-      const radius = 6371;
-      const dLat = toRad(b[0] - a[0]);
-      const dLon = toRad(b[1] - a[1]);
-      const lat1 = toRad(a[0]);
-      const lat2 = toRad(b[0]);
-      const value =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      return radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
-    }
-
-    function toRad(value) {
-      return value * Math.PI / 180;
     }
 
     function formatKm(value) {
