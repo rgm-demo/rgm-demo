@@ -2014,9 +2014,9 @@
           const cluster = targetClusterByRecordId.get(record.id);
           L.polyline([homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, cluster ? cluster.displayCoord : record.targetGeo.coord], { 
             color: "#4a5568",   // Dunkleres Graublau (oder z. B. "#1f6feb" für Blau)
-            weight: 2.5,         // Strichstärke von 1.35 auf 2.5 erhöht
-            opacity: 0.75        // Deckkraft von 34% auf 75% erhöht
-            // dashArray entfernt oder auskommentiert für eine durchgezogene Linie
+            weight: 1.35, 
+            opacity: 0.5, 
+            dashArray: "5 7"
           }).addTo(state.layers.lines);
         });
       }
