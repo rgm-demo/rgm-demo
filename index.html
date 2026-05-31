@@ -932,8 +932,8 @@
       engine: "leaflet",
       homeMarkers: new Map(),
       homeSvgMarkers: new Map(),
-      lineMarkers: new Map(),       // Speichert Leaflet-Verbindungslinien pro Record-ID
-      lineSvgMarkers: new Map(),    // Speichert SVG-Fallback-Linien pro Record-ID
+      lineMarkers: new Map(),       // Für Leaflet-Verbindungen
+      lineSvgMarkers: new Map(),    // Für SVG-Verbindungen
       fallback: {
         root: null,
         svg: null,
@@ -997,7 +997,7 @@
           ]);
           return Boolean(window.L);
         } catch {
-          // The SVG fallback is designed for hosted environments that block CDNs.
+          // Fallback
         }
       }
 
@@ -1385,7 +1385,7 @@
 
     function extractTextRuns(xml) {
       const parts = [];
-      const textRegex = /<(?:\w+:)?t\b[^>]*>([\s\S]*?)<\/(?:\w+:)?t>/gi;
+      const textRegex = /<(?:\w+:)?t\b[^>]*>([\s\S]*?)<\/(w+:)?t>/gi;
       let match;
       while ((match = textRegex.exec(xml))) {
         parts.push(decodeXml(match[1]));
@@ -1601,17 +1601,6 @@
       }
     }
 
-    function clearDataLayers() {
-      state.homeMarkers.clear();
-      state.homeSvgMarkers.clear();
-      state.lineMarkers.clear();
-      state.lineSvgMarkers.clear();
-      if (state.engine === "svg") return;
-      state.layers.lines.clearLayers();
-      state.layers.homes.clearLayers();
-      state.layers.targets.clearLayers();
-    }
-
     function renderOrientationLeaflet() {
       if (!state.map || !state.settings.orientation) return;
       state.layers.orientation.clearLayers();
@@ -1636,9 +1625,9 @@
 
         attachHover(marker, {
           type: "Orientierungspunkt",
-          title: `[${point.code}] ${point.name}`,
+          title: "[" + point.code + "] " + point.name,
           rows: [["Adresse", point.displayName || point.address]],
-          popup: `<div class="popup-title">[${point.code}] ${point.name}</div><div class="popup-row">${point.displayName || point.address}</div>`
+          popup: '<div class="popup-title">[' + point.code + '] ' + point.name + '</div><div class="popup-row">' + (point.displayName || point.address) + '</div>'
         });
       });
     }
@@ -1741,7 +1730,7 @@
 
           attachHover(marker, {
             type: "Wohnort-Cluster",
-            title: `PLZ ${cluster.postcode}`,
+            title: "PLZ " + cluster.postcode,
             rows: homeClusterFocusRows(cluster),
             popup: homeClusterPopup(cluster)
           }, {
@@ -1777,53 +1766,23 @@
             rows: clusterFocusRows(cluster),
             popup: clusterPopup(cluster)
           }, {
-            onEnter: () => {
-              highlightHomes(cluster.records.map((record) => record.id), true);
-              highlightLines(cluster.records.map((record) => record.id), true);
-            },
-            onLeave: () => {
-              highlightHomes(cluster.records.map((record) => record.id), false);
-              highlightLines(cluster.records.map((record) => record.id), false);
-            }
+            onEnter: () => highlightLines(cluster.records.map((r) => r.id), true),
+            onLeave: () => highlightLines(cluster.records.map((r) => r.id), false)
           });
         });
       }
     }
 
-    function highlightHomes(recordIds, active) {
-      recordIds.forEach((recordId) => {
-        if (state.engine === "leaflet" && state.homeMarkers.has(recordId)) {
-          const marker = state.homeMarkers.get(recordId);
-          if (active) {
-            marker.setStyle({ fillColor: "var(--green)", weight: 3 });
-          } else {
-            marker.setStyle({ fillColor: "var(--blue)", weight: 2 });
-          }
-        }
-        if (state.engine === "svg" && state.homeSvgMarkers.has(recordId)) {
-          const element = state.homeSvgMarkers.get(recordId);
-          if (active) {
-            element.setAttribute("fill", "var(--green)");
-            element.setAttribute("stroke-width", "3.5");
-          } else {
-            element.setAttribute("fill", "var(--blue)");
-            element.setAttribute("stroke-width", "2.4");
-          }
-        }
-      });
-    }
-
     function highlightLines(recordIds, active) {
       recordIds.forEach((recordId) => {
-        // 1. Leaflet Layer Verbindungslinien stylen
         if (state.engine === "leaflet" && state.lineMarkers.has(recordId)) {
           const line = state.lineMarkers.get(recordId);
           if (active) {
             line.setStyle({
-              color: "var(--blue)", // Hebt die betroffene Linie farblich hervor (passend zu Wohnort)
-              weight: 3.2,          // Erhöht die Strichstärke deutlich
-              opacity: 1.0,         // ENTFERNT DIE DECKKRAFT (Volle Sichtbarkeit)
-              dashArray: null       // Macht die Linie durchgezogen für besseren Kontrast
+              color: "var(--blue)",
+              weight: 3.2,
+              opacity: 1.0,
+              dashArray: null
             });
             line.bringToFront();
           } else {
@@ -1836,15 +1795,13 @@
           }
         }
 
-        // 2. SVG-Fallback Karten-Verbindungslinien stylen
         if (state.engine === "svg" && state.lineSvgMarkers.has(recordId)) {
           const lineNode = state.lineSvgMarkers.get(recordId);
           if (active) {
             lineNode.style.stroke = "var(--blue)";
             lineNode.style.strokeWidth = "3.2px";
-            lineNode.style.opacity = "1.0"; // ENTFERNT DIE DECKKRAFT im Fallback
+            lineNode.style.opacity = "1.0";
             lineNode.setAttribute("stroke-dasharray", "none");
-            // Element nach vorne rücken in der DOM-Hierarchie
             if (lineNode.parentNode) lineNode.parentNode.appendChild(lineNode);
           } else {
             lineNode.style.stroke = "";
@@ -1865,14 +1822,10 @@
     }
 
     function homeClusterPopup(cluster) {
-      const itemsHtml = cluster.records.map((r) => `<li><strong>${escapeHtml(r.label)}</strong> &rarr; ${escapeHtml(r.facility)} (${formatKmCompact(r.distance)})</li>`).join("");
-      return `
-        <div class="popup-title">Wohnort PLZ ${escapeHtml(cluster.postcode)}</div>
-        <div class="popup-row">Gemeinsame Zuordnungen: <strong>${cluster.count}</strong></div>
-        <ul class="popup-list" style="margin:6px 0 0; padding-left:16px; max-height:120px; overflow:auto;">
-          ${itemsHtml}
-        </ul>
-      `;
+      const itemsHtml = cluster.records.map((r) => "<li><strong>" + escapeHtml(r.label) + "</strong> &rarr; " + escapeHtml(r.facility) + " (" + formatKmCompact(r.distance) + ")</li>").join("");
+      return '<div class="popup-title">Wohnort PLZ ' + escapeHtml(cluster.postcode) + '</div>' +
+             '<div class="popup-row">Gemeinsame Zuordnungen: <strong>' + cluster.count + '</strong></div>' +
+             '<ul class="popup-list" style="margin:6px 0 0; padding-left:16px; max-height:120px; overflow:auto;">' + itemsHtml + '</ul>';
     }
 
     function clusterFocusRows(cluster) {
@@ -1886,15 +1839,11 @@
     }
 
     function clusterPopup(cluster) {
-      const itemsHtml = cluster.records.map((r) => `<li><strong>${escapeHtml(r.label)}</strong> (aus PLZ ${escapeHtml(r.home.match(/\\d+/)?.[0] || \"-\")}): ${formatKmCompact(r.distance)}</li>`).join("");
-      return `
-        <div class="popup-title">${escapeHtml(cluster.facilityName)}</div>
-        <div class="popup-row" style="margin-bottom:6px;">${escapeHtml(cluster.records[0]?.target || \"\")}</div>
-        <div class="popup-list-title">Zugeordnete Personen (${cluster.count}):</div>
-        <ul class="popup-list" style="margin:4px 0 0; padding-left:16px; max-height:110px; overflow:auto;">
-          ${itemsHtml}
-        </ul>
-      `;
+      const itemsHtml = cluster.records.map((r) => "<li><strong>" + escapeHtml(r.label) + "</strong> (aus PLZ " + escapeHtml(r.home.match(/\d+/)?.[0] || "-") + "): " + formatKmCompact(r.distance) + "</li>").join("");
+      return '<div class="popup-title">' + escapeHtml(cluster.facilityName) + '</div>' +
+             '<div class="popup-row" style="margin-bottom:6px;">' + escapeHtml(cluster.records[0]?.target || "") + '</div>' +
+             '<div class="popup-list-title">Zugeordnete Personen (' + cluster.count + '):</div>' +
+             '<ul class="popup-list" style="margin:4px 0 0; padding-left:16px; max-height:110px; overflow:auto;">' + itemsHtml + '</ul>';
     }
 
     function renderDataLayers() {
@@ -1935,7 +1884,7 @@
 
         attachFallbackHover(text, {
           type: "Orientierungspunkt",
-          title: `[${point.code}] ${point.name}`,
+          title: "[" + point.code + "] " + point.name,
           rows: [["Adresse", point.displayName || point.address]]
         });
       });
@@ -2056,7 +2005,7 @@
 
           attachFallbackHover(circle, {
             type: "Wohnort-Cluster",
-            title: `PLZ ${cluster.postcode}`,
+            title: "PLZ " + cluster.postcode,
             rows: homeClusterFocusRows(cluster)
           }, {
             onEnter: () => highlightLines(cluster.records.map((r) => r.id), true),
@@ -2101,14 +2050,8 @@
             title: cluster.facilityName,
             rows: clusterFocusRows(cluster)
           }, {
-            onEnter: () => {
-              highlightHomes(cluster.records.map((record) => record.id), true);
-              highlightLines(cluster.records.map((record) => record.id), true);
-            },
-            onLeave: () => {
-              highlightHomes(cluster.records.map((record) => record.id), false);
-              highlightLines(cluster.records.map((record) => record.id), false);
-            }
+            onEnter: () => highlightLines(cluster.records.map((r) => r.id), true),
+            onLeave: () => highlightLines(cluster.records.map((r) => r.id), false)
           });
         });
       }
