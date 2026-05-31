@@ -854,10 +854,10 @@
         <div id="map"></div>
         <div class="empty-state" id="emptyState">
           <h2>Rohdaten-Mapping.xlsx auswählen</h2>
-          <p>Die Karte nutzt Spalte A als Bezeichnung, Spalte B als Wohnort, Spalte C als Einrichtungsname und Spalte D als Zielort. Die festen Orientierungspunkte sind bereits hinterlegt.</p>
+          <p>Die Karte nutzt Spalte A als Bezeichnung, Spalte B als Postleitzahl des Wohnorts, Spalte C als Einrichtungsname und Spalte D als Zielort. Die festen Orientierungspunkte sind bereits hinterlegt.</p>
         </div>
         <div class="legend" aria-label="Legende">
-          <div class="legend-row"><span class="dot blue"></span><span>Wohnorte mit Entfernung zum Zielort</span></div>
+          <div class="legend-row"><span class="dot blue"></span><span>Wohnort-Cluster je Postleitzahl mit Anzahl</span></div>
           <div class="legend-row"><span class="dot black"></span><span>Zielort-Cluster je Einrichtung mit Anzahl</span></div>
           <div class="legend-row"><span class="dot red"></span><span>Feste Orientierungspunkte mit Kürzel</span></div>
           <div class="legend-row"><span class="dot line"></span><span>Wohnort-Ziel-Verbindung</span></div>
@@ -1183,7 +1183,7 @@
       }
 
       const uniquePlaceCount = countUniquePlaces(records);
-      setStatus(`${records.length} Datensätze gelesen; ${uniquePlaceCount} eindeutige Wohnorte/Zielorte werden geocodiert.`, 6);
+      setStatus(`${records.length} Datensätze gelesen; ${uniquePlaceCount} eindeutige PLZ/Zielorte werden geocodiert.`, 6);
       const geocodedPlaceCount = await geocodeRecords(records);
       renderDataLayers();
       updateMetrics();
@@ -1209,9 +1209,9 @@
       const zip = await openZip(await file.arrayBuffer());
       const workbookXml = await readZipText(zip, "xl/workbook.xml");
       const workbookRelsXml = await readZipText(zip, "xl/_rels/workbook.xml.rels");
-      const firstSheet = parseFirstWorkbookSheet(workbookXml);
-      const sheetTarget = parseRelationshipTarget(workbookRelsXml, firstSheet.relId);
-      if (!sheetTarget) throw new Error("Das erste Tabellenblatt konnte nicht gefunden werden.");
+      const dataSheet = parseWorkbookSheet(workbookXml, "Sheet1");
+      const sheetTarget = parseRelationshipTarget(workbookRelsXml, dataSheet.relId);
+      if (!sheetTarget) throw new Error("Das Tabellenblatt Sheet1 konnte nicht gefunden werden.");
 
       const sheetPath = normalizeZipPath("xl", sheetTarget);
       const sharedStrings = zip.entries.has("xl/sharedStrings.xml")
@@ -1302,13 +1302,22 @@
       }
     }
 
-    function parseFirstWorkbookSheet(workbookXml) {
-      const match = workbookXml.match(/<(?:\w+:)?sheet\b[^>]*>/i);
-      if (!match) throw new Error("In der Exceldatei wurde kein Tabellenblatt gefunden.");
-      const attrs = parseXmlAttributes(match[0]);
-      const relId = attrs["r:id"] || attrs.id;
-      if (!relId) throw new Error("Das erste Tabellenblatt hat keine interne Referenz.");
-      return { name: attrs.name || "Sheet1", relId };
+    function parseWorkbookSheet(workbookXml, sheetName) {
+      const sheetRegex = /<(?:\w+:)?sheet\b[^>]*>/gi;
+      let match;
+      const sheets = [];
+
+      while ((match = sheetRegex.exec(workbookXml))) {
+        const attrs = parseXmlAttributes(match[0]);
+        const relId = attrs["r:id"] || attrs.id;
+        if (relId) sheets.push({ name: attrs.name || "", relId });
+      }
+
+      if (!sheets.length) throw new Error("In der Exceldatei wurde kein Tabellenblatt gefunden.");
+
+      const exactSheet = sheets.find((sheet) => sheet.name === sheetName);
+      if (!exactSheet) throw new Error(`Das Tabellenblatt ${sheetName} wurde nicht gefunden.`);
+      return exactSheet;
     }
 
     function parseRelationshipTarget(relsXml, relId) {
@@ -1410,6 +1419,7 @@
       const columnIndexes = resolveColumnIndexes(nonEmpty[0]);
       const startIndex = columnIndexes.hasHeader ? 1 : 0;
       const records = [];
+      const seenPackages = new Set();
 
       for (let index = startIndex; index < nonEmpty.length; index += 1) {
         const row = nonEmpty[index];
@@ -1424,6 +1434,13 @@
           state.issues.push(`Zeile ${index + 1}: Wohnort oder Zielort fehlt`);
           continue;
         }
+
+        const packageKey = JSON.stringify([term, home, facilityName, target]);
+        if (seenPackages.has(packageKey)) {
+          state.issues.push(`Zeile ${index + 1}: doppeltes Datenpaket aus Spalte A-D übersprungen`);
+          continue;
+        }
+        seenPackages.add(packageKey);
 
         records.push({
           id: records.length + 1,
@@ -1522,34 +1539,12 @@
         return mapped;
       });
 
-      state.mappedRecords = applyDisplayOffsets(mappedRecords);
+      state.mappedRecords = mappedRecords;
       return uniquePlaces.length;
-    }
-
-    function applyDisplayOffsets(records) {
-      const homeGroups = groupRecordIndexes(records, (record) => record.homeGeo ? `home:${coordKey(record.homeGeo.coord)}` : "");
-      const targetGroups = groupRecordIndexes(records, (record) => record.targetGeo ? `target:${coordKey(record.targetGeo.coord)}` : "");
-
-      return records.map((record, index) => ({
-        ...record,
-        homeDisplayCoord: record.homeGeo ? offsetCoord(record.homeGeo.coord, homeGroups.get(`home:${coordKey(record.homeGeo.coord)}`), index, "home") : null,
-        targetDisplayCoord: record.targetGeo ? offsetCoord(record.targetGeo.coord, targetGroups.get(`target:${coordKey(record.targetGeo.coord)}`), index, "target") : null
-      }));
     }
 
     function coordKey(coord) {
       return `${Number(coord[0]).toFixed(6)},${Number(coord[1]).toFixed(6)}`;
-    }
-
-    function groupRecordIndexes(records, keyFn) {
-      const groups = new Map();
-      records.forEach((record, index) => {
-        const key = keyFn(record);
-        if (!key) return;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(index);
-      });
-      return groups;
     }
 
     function offsetCoord(coord, group, recordIndex, type) {
@@ -1621,12 +1616,83 @@
       return [sum[0] / coords.length, sum[1] / coords.length];
     }
 
+    function buildHomeClusters(records) {
+      const clustersByPostcode = new Map();
+
+      records.forEach((record) => {
+        if (!record.homeGeo) return;
+        const key = record.home;
+        if (!clustersByPostcode.has(key)) {
+          clustersByPostcode.set(key, {
+            key,
+            postcode: record.home,
+            records: [],
+            coords: []
+          });
+        }
+
+        const cluster = clustersByPostcode.get(key);
+        cluster.records.push(record);
+        cluster.coords.push(record.homeGeo.coord);
+      });
+
+      let clusters = [...clustersByPostcode.values()].map((cluster) => {
+        const coord = averageCoord(cluster.coords);
+        return {
+          ...cluster,
+          count: cluster.records.length,
+          coord,
+          displayCoord: coord
+        };
+      });
+
+      const coordinateGroups = new Map();
+      clusters.forEach((cluster, index) => {
+        const key = coordKey(cluster.coord);
+        if (!coordinateGroups.has(key)) coordinateGroups.set(key, []);
+        coordinateGroups.get(key).push(index);
+      });
+
+      clusters = clusters.map((cluster, index) => ({
+        ...cluster,
+        displayCoord: offsetCoord(cluster.coord, coordinateGroups.get(coordKey(cluster.coord)), index, "home")
+      }));
+
+      return clusters;
+    }
+
     function indexClustersByRecordId(clusters) {
       const index = new Map();
       clusters.forEach((cluster) => {
         cluster.records.forEach((record) => index.set(record.id, cluster));
       });
       return index;
+    }
+
+    function homeClusterFocusRows(cluster) {
+      return [
+        ["Postleitzahl", cluster.postcode],
+        ["Anzahl", String(cluster.count)],
+        { heading: "Patienten:" },
+        ...cluster.records
+          .slice()
+          .sort((a, b) => a.term.localeCompare(b.term, "de", { numeric: true }))
+          .map((record) => record.term)
+      ];
+    }
+
+    function homeClusterPopup(cluster) {
+      const itemList = cluster.records
+        .slice()
+        .sort((a, b) => a.term.localeCompare(b.term, "de", { numeric: true }))
+        .map((record) => `<span>${escapeHtml(record.term)}</span>`)
+        .join("");
+
+      return `
+        <p class="popup-title">PLZ ${escapeHtml(cluster.postcode)}</p>
+        <p class="popup-row"><strong>Anzahl:</strong> ${cluster.count}</p>
+        <div class="popup-list"><strong class="popup-list-title">Patienten:</strong>${itemList}</div>
+      `;
     }
 
     function clusterFocusRows(cluster) {
@@ -1672,6 +1738,11 @@
     }
 
     async function geocode(rawQuery, fallbackCoord) {
+      const raw = cleanCell(rawQuery);
+      if (isGermanPostcode(raw)) {
+        return geocodePostcode(raw);
+      }
+
       const query = normalizeQuery(rawQuery);
       const cacheKey = `geo-map-v4:${query.toLowerCase()}`;
       const cached = readCache(cacheKey);
@@ -1720,6 +1791,85 @@
       }
 
       throw new Error(`Kein Treffer für ${rawQuery}`);
+    }
+
+    async function geocodePostcode(postcode) {
+      const cacheKey = `geo-plz-v3:${postcode}`;
+      const cached = readCache(cacheKey);
+      if (cached) return cached;
+
+      try {
+        const url = new URL("https://photon.komoot.io/api/");
+        url.searchParams.set("q", `${postcode} Deutschland`);
+        url.searchParams.set("limit", "1");
+        url.searchParams.set("lang", "de");
+
+        const response = await fetch(url.toString(), {
+          headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const first = Array.isArray(data.features) ? data.features[0] : null;
+        const coords = first && first.geometry && first.geometry.coordinates;
+        if (Array.isArray(coords) && coords.length >= 2) {
+          const props = first.properties || {};
+          const placeName = cleanCell(props.city || props.name || props.district || props.county);
+          const value = {
+            coord: [Number(coords[1]), Number(coords[0])],
+            displayName: `${postcode}${placeName ? `, ${placeName}` : ""}, Deutschland`,
+            name: postcode,
+            fallbackUsed: false,
+            provider: "photon-postcode"
+          };
+          writeCache(cacheKey, value);
+          return value;
+        }
+      } catch {
+        // Fall through to structured Nominatim lookup for postcodes.
+      }
+
+      await waitForGeocodeTurn();
+
+      const url = new URL("https://nominatim.openstreetmap.org/search");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("limit", "1");
+      url.searchParams.set("countrycodes", "de");
+      url.searchParams.set("country", "Deutschland");
+      url.searchParams.set("postalcode", postcode);
+      url.searchParams.set("addressdetails", "1");
+      url.searchParams.set("accept-language", "de");
+
+      const response = await fetch(url.toString(), {
+        headers: { "Accept": "application/json" }
+      });
+
+      if (!response.ok) {
+        throw new Error(`PLZ ${postcode} konnte nicht geocodiert werden`);
+      }
+
+      const results = await response.json();
+      if (Array.isArray(results) && results.length) {
+        const first = results[0];
+        const value = {
+          coord: [Number(first.lat), Number(first.lon)],
+          displayName: first.display_name || `${postcode}, Deutschland`,
+          name: postcode,
+          fallbackUsed: false,
+          provider: "nominatim-postcode"
+        };
+        writeCache(cacheKey, value);
+        return value;
+      }
+
+      throw new Error(`PLZ ${postcode} konnte nicht geocodiert werden`);
+    }
+
+    function isGermanPostcode(value) {
+      return /^\d{5}$/.test(cleanCell(value));
     }
 
     function normalizeQuery(value) {
@@ -1776,7 +1926,7 @@
     function clearGeocodeCache() {
       try {
         Object.keys(localStorage)
-          .filter((key) => key.startsWith("geo-map-v3:") || key.startsWith("geo-map-v4:"))
+          .filter((key) => key.startsWith("geo-map-v3:") || key.startsWith("geo-map-v4:") || key.startsWith("geo-plz-"))
           .forEach((key) => localStorage.removeItem(key));
         setStatus("Geocoding-Cache geleert.", 100);
       } catch {
@@ -1852,14 +2002,17 @@
       state.homeMarkers.clear();
 
       const records = filteredRecords();
+      const homeClusters = buildHomeClusters(records);
+      const homeClusterByRecordId = indexClustersByRecordId(homeClusters);
       const targetClusters = buildTargetClusters(records);
       const targetClusterByRecordId = indexClustersByRecordId(targetClusters);
 
       if (state.settings.lines) {
         records.forEach((record) => {
           if (!record.homeGeo || !record.targetGeo) return;
+          const homeCluster = homeClusterByRecordId.get(record.id);
           const cluster = targetClusterByRecordId.get(record.id);
-          L.polyline([record.homeDisplayCoord || record.homeGeo.coord, cluster ? cluster.displayCoord : record.targetGeo.coord], {
+          L.polyline([homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, cluster ? cluster.displayCoord : record.targetGeo.coord], {
             color: "#718096",
             weight: 1.35,
             opacity: 0.34,
@@ -1869,9 +2022,8 @@
       }
 
       if (state.settings.homes) {
-        records.forEach((record) => {
-          if (!record.homeGeo || record.homeTargetKm === null) return;
-          const marker = L.circleMarker(record.homeDisplayCoord || record.homeGeo.coord, {
+        homeClusters.forEach((cluster) => {
+          const marker = L.circleMarker(cluster.displayCoord, {
             radius: 6,
             color: "#ffffff",
             weight: 2,
@@ -1880,7 +2032,7 @@
           });
 
           if (state.settings.labels) {
-            marker.bindTooltip(formatKm(record.homeTargetKm), {
+            marker.bindTooltip(String(cluster.count), {
               permanent: true,
               direction: "right",
               offset: [8, 0],
@@ -1889,27 +2041,13 @@
           }
 
           attachHover(marker, {
-            type: "Wohnort",
-            title: record.term,
-            rows: [
-              { heading: "Patienten:" },
-              record.term,
-              ["Wohnort", record.home],
-              ["Einrichtungsname", record.facilityName || "-"],
-              ["Zielort", record.target],
-              ["Entfernung", formatKm(record.homeTargetKm)]
-            ],
-            popup: pointPopup("Wohnort", record.term, [
-              { heading: "Patienten:" },
-              record.term,
-              ["Wohnort", record.home],
-              ["Einrichtungsname", record.facilityName || "-"],
-              ["Zielort", record.target],
-              ["Entfernung", formatKm(record.homeTargetKm)]
-            ])
+            type: "Wohnort-Cluster",
+            title: `PLZ ${cluster.postcode}`,
+            rows: homeClusterFocusRows(cluster),
+            popup: homeClusterPopup(cluster)
           });
 
-          state.homeMarkers.set(record.id, marker);
+          cluster.records.forEach((record) => state.homeMarkers.set(record.id, marker));
           marker.addTo(state.layers.homes);
         });
       }
@@ -1980,6 +2118,8 @@
 
       const svg = state.fallback.svg;
       const records = filteredRecords();
+      const homeClusters = buildHomeClusters(records);
+      const homeClusterByRecordId = indexClustersByRecordId(homeClusters);
       const targetClusters = buildTargetClusters(records);
       const targetClusterByRecordId = indexClustersByRecordId(targetClusters);
       const visiblePoints = [];
@@ -1988,9 +2128,9 @@
       if (state.settings.orientation) {
         state.orientation.forEach((point) => visiblePoints.push(point.coord));
       }
-      records.forEach((record) => {
-        if (state.settings.homes && record.homeGeo) visiblePoints.push(record.homeDisplayCoord || record.homeGeo.coord);
-      });
+      if (state.settings.homes) {
+        homeClusters.forEach((cluster) => visiblePoints.push(cluster.displayCoord));
+      }
       if (state.settings.targets) {
         targetClusters.forEach((cluster) => visiblePoints.push(cluster.displayCoord));
       }
@@ -2002,8 +2142,9 @@
       if (state.settings.lines) {
         records.forEach((record) => {
           if (!record.homeGeo || !record.targetGeo) return;
+          const homeCluster = homeClusterByRecordId.get(record.id);
           const cluster = targetClusterByRecordId.get(record.id);
-          const start = projectPoint(record.homeDisplayCoord || record.homeGeo.coord, bounds);
+          const start = projectPoint(homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, bounds);
           const end = projectPoint(cluster ? cluster.displayCoord : record.targetGeo.coord, bounds);
           addSvg(svg, "path", {
             d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
@@ -2036,38 +2177,23 @@
       }
 
       if (state.settings.homes) {
-        records.forEach((record) => {
-          if (!record.homeGeo || record.homeTargetKm === null) return;
-          const projected = projectPoint(record.homeDisplayCoord || record.homeGeo.coord, bounds);
+        homeClusters.forEach((cluster) => {
+          const projected = projectPoint(cluster.displayCoord, bounds);
           const marker = addFallbackMarker({
             svg,
             x: projected.x,
             y: projected.y,
             className: "home",
-            label: formatKm(record.homeTargetKm),
+            label: String(cluster.count),
             labelSide: "right",
             payload: {
-              type: "Wohnort",
-              title: record.term,
-              rows: [
-                { heading: "Patienten:" },
-                record.term,
-                ["Wohnort", record.home],
-                ["Einrichtungsname", record.facilityName || "-"],
-                ["Zielort", record.target],
-                ["Entfernung", formatKm(record.homeTargetKm)]
-              ],
-              html: pointPopup("Wohnort", record.term, [
-                { heading: "Patienten:" },
-                record.term,
-                ["Wohnort", record.home],
-                ["Einrichtungsname", record.facilityName || "-"],
-                ["Zielort", record.target],
-                ["Entfernung", formatKm(record.homeTargetKm)]
-              ])
+              type: "Wohnort-Cluster",
+              title: `PLZ ${cluster.postcode}`,
+              rows: homeClusterFocusRows(cluster),
+              html: homeClusterPopup(cluster)
             }
           });
-          state.homeSvgMarkers.set(record.id, marker);
+          cluster.records.forEach((record) => state.homeSvgMarkers.set(record.id, marker));
         });
       }
 
@@ -2335,11 +2461,12 @@
       }
 
       const records = filteredRecords();
+      const homeClusters = buildHomeClusters(records);
       const targetClusters = buildTargetClusters(records);
 
-      records.forEach((record) => {
-        if (state.settings.homes && record.homeGeo) bounds.push(record.homeDisplayCoord || record.homeGeo.coord);
-      });
+      if (state.settings.homes) {
+        homeClusters.forEach((cluster) => bounds.push(cluster.displayCoord));
+      }
       if (state.settings.targets) {
         targetClusters.forEach((cluster) => bounds.push(cluster.displayCoord));
       }
