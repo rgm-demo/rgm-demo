@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Interaktives Kartenmapping</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
     :root {
       --bg: #f5f6f8;
@@ -537,6 +536,21 @@
       font-weight: 760;
     }
 
+    .popup-list {
+      display: grid;
+      gap: 3px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line-soft);
+      color: var(--ink-soft);
+      font-size: 12px;
+    }
+
+    .popup-list-title {
+      color: var(--ink);
+      font-weight: 800;
+    }
+
     .leaflet-container {
       background: #e6ecf2;
       font-family: "Segoe UI", Arial, sans-serif;
@@ -544,6 +558,117 @@
 
     .leaflet-bar a {
       color: var(--ink);
+    }
+
+    .fallback-map {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, rgba(148, 163, 184, 0.13) 1px, transparent 1px),
+        linear-gradient(rgba(148, 163, 184, 0.13) 1px, transparent 1px),
+        #e8edf3;
+      background-size: 72px 72px;
+    }
+
+    .fallback-svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .fallback-region {
+      fill: rgba(255, 255, 255, 0.38);
+      stroke: rgba(100, 116, 139, 0.25);
+      stroke-width: 1.2;
+    }
+
+    .fallback-grid {
+      stroke: rgba(100, 116, 139, 0.2);
+      stroke-width: 1;
+      stroke-dasharray: 5 7;
+    }
+
+    .fallback-line {
+      fill: none;
+      stroke: #718096;
+      stroke-width: 1.5;
+      stroke-dasharray: 6 8;
+      opacity: 0.45;
+    }
+
+    .fallback-point {
+      cursor: pointer;
+      stroke: #ffffff;
+      stroke-width: 2.4;
+    }
+
+    .fallback-point.home {
+      fill: var(--blue);
+    }
+
+    .fallback-point.target {
+      fill: var(--black);
+    }
+
+    .fallback-point.orientation {
+      fill: var(--red);
+    }
+
+    .fallback-label-bg {
+      fill: rgba(255, 255, 255, 0.96);
+      stroke: rgba(15, 23, 42, 0.12);
+      stroke-width: 1;
+      filter: drop-shadow(0 4px 10px rgba(15, 23, 42, 0.15));
+    }
+
+    .fallback-label {
+      font-size: 12px;
+      font-weight: 800;
+      dominant-baseline: middle;
+      pointer-events: none;
+    }
+
+    .fallback-label.home {
+      fill: #0b4eb4;
+    }
+
+    .fallback-label.target {
+      fill: #ffffff;
+    }
+
+    .fallback-label-bg.target {
+      fill: rgba(17, 24, 39, 0.9);
+      stroke: rgba(255, 255, 255, 0.18);
+    }
+
+    .fallback-label.orientation {
+      fill: #b91c1c;
+    }
+
+    .fallback-caption {
+      fill: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .fallback-tooltip {
+      position: absolute;
+      z-index: 4;
+      display: none;
+      max-width: 280px;
+      padding: 10px 12px;
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+      font-size: 12px;
+      line-height: 1.35;
+      pointer-events: none;
     }
 
     @media (max-width: 980px) {
@@ -635,7 +760,7 @@
         <section class="control-block">
           <h2 class="block-title">Datenquelle</h2>
           <div class="file-row">
-            <input class="file-input" id="fileInput" type="file" accept=".xlsx,.xls">
+            <input class="file-input" id="fileInput" type="file" accept=".xlsx">
             <label class="file-label" for="fileInput">Rohdaten-Mapping.xlsx laden</label>
             <div class="file-name" id="fileName">Noch keine Exceldatei geladen.</div>
           </div>
@@ -669,7 +794,7 @@
 
         <section class="control-block">
           <h2 class="block-title">Layer</h2>
-          <input class="search" id="searchInput" type="search" placeholder="Suche nach Begriff, Wohnort oder Zielort">
+          <input class="search" id="searchInput" type="search" placeholder="Suche nach Bezeichnung, Wohnort, Einrichtung oder Zielort">
           <div class="layer-list" style="margin-top: 12px;">
             <label class="toggle">
               <input type="checkbox" id="toggleHomes" checked>
@@ -729,11 +854,11 @@
         <div id="map"></div>
         <div class="empty-state" id="emptyState">
           <h2>Rohdaten-Mapping.xlsx auswählen</h2>
-          <p>Die Karte nutzt Spalte A als Hover-Begriff, Spalte B als Wohnort und Spalte C als Zielort. Die festen Orientierungspunkte sind bereits hinterlegt.</p>
+          <p>Die Karte nutzt Spalte A als Bezeichnung, Spalte B als Wohnort, Spalte C als Einrichtungsname und Spalte D als Zielort. Die festen Orientierungspunkte sind bereits hinterlegt.</p>
         </div>
         <div class="legend" aria-label="Legende">
           <div class="legend-row"><span class="dot blue"></span><span>Wohnorte mit Entfernung zum Zielort</span></div>
-          <div class="legend-row"><span class="dot black"></span><span>Zielorte mit Entfernung zum nächsten Orientierungspunkt</span></div>
+          <div class="legend-row"><span class="dot black"></span><span>Zielort-Cluster je Einrichtung mit Anzahl</span></div>
           <div class="legend-row"><span class="dot red"></span><span>Feste Orientierungspunkte mit Kürzel</span></div>
           <div class="legend-row"><span class="dot line"></span><span>Wohnort-Ziel-Verbindung</span></div>
         </div>
@@ -741,10 +866,19 @@
     </main>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script>
     "use strict";
+
+    const LEAFLET_CDNS = [
+      {
+        css: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css",
+        js: "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+      },
+      {
+        css: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+        js: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      }
+    ];
 
     const ORIENTATION_POINTS = [
       {
@@ -794,6 +928,14 @@
     const state = {
       map: null,
       layers: {},
+      engine: "leaflet",
+      homeMarkers: new Map(),
+      homeSvgMarkers: new Map(),
+      fallback: {
+        root: null,
+        svg: null,
+        tooltip: null
+      },
       records: [],
       mappedRecords: [],
       orientation: [],
@@ -833,28 +975,88 @@
       toggleLabels: document.getElementById("toggleLabels")
     };
 
-    window.addEventListener("load", () => {
-      if (!window.L) {
-        setStatus("Leaflet konnte nicht geladen werden. Bitte mit Internetverbindung neu öffnen.", 0);
-        return;
-      }
-
-      initMap();
+    window.addEventListener("load", async () => {
       bindControls();
+      await loadLeafletOptional();
+      initMap();
       loadOrientation();
     });
 
+    async function loadLeafletOptional() {
+      if (window.L) return true;
+      setStatus("Kartenbibliothek wird geladen.", 5);
+
+      for (const source of LEAFLET_CDNS) {
+        try {
+          await Promise.race([
+            Promise.all([loadStylesheet(source.css), loadScript(source.js)]),
+            sleep(2600).then(() => Promise.reject(new Error("Leaflet-Timeout")))
+          ]);
+          return Boolean(window.L);
+        } catch {
+          // The SVG fallback is designed for hosted environments that block CDNs.
+        }
+      }
+
+      return false;
+    }
+
+    function loadStylesheet(href) {
+      return new Promise((resolve, reject) => {
+        if ([...document.styleSheets].some((sheet) => sheet.href === href)) {
+          resolve();
+          return;
+        }
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = href;
+        link.onload = () => resolve();
+        link.onerror = () => reject(new Error("Stylesheet konnte nicht geladen werden."));
+        document.head.appendChild(link);
+      });
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        if ([...document.scripts].some((script) => script.src === src)) {
+          resolve();
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Script konnte nicht geladen werden."));
+        document.head.appendChild(script);
+      });
+    }
+
     function initMap() {
+      if (!window.L) {
+        initFallbackMap();
+        setStatus("Leaflet ist nicht verfügbar. Die integrierte SVG-Karte wird genutzt.", 12);
+        return;
+      }
+
+      state.engine = "leaflet";
       state.map = L.map("map", {
         zoomControl: true,
         scrollWheelZoom: true,
         preferCanvas: true
       }).setView([51.19, 6.56], 10);
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      const tileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap"
       }).addTo(state.map);
+
+      let tileErrors = 0;
+      tileLayer.on("tileerror", () => {
+        tileErrors += 1;
+        if (tileErrors === 6) {
+          switchToFallbackMap("OSM-Kartenkacheln sind blockiert. Die integrierte SVG-Karte wird genutzt.");
+        }
+      });
 
       state.layers.lines = L.layerGroup().addTo(state.map);
       state.layers.homes = L.layerGroup().addTo(state.map);
@@ -862,6 +1064,39 @@
       state.layers.orientation = L.layerGroup().addTo(state.map);
 
       L.control.scale({ imperial: false, metric: true }).addTo(state.map);
+
+      window.setTimeout(() => {
+        const pane = document.querySelector(".leaflet-pane");
+        if (pane && window.getComputedStyle(pane).position !== "absolute") {
+          switchToFallbackMap("Leaflet-CSS ist nicht verfügbar. Die integrierte SVG-Karte wird genutzt.");
+        }
+      }, 600);
+    }
+
+    function switchToFallbackMap(message) {
+      if (state.engine === "svg") return;
+      if (state.map) {
+        state.map.remove();
+        state.map = null;
+      }
+      state.layers = {};
+      initFallbackMap();
+      renderAllLayers();
+      setStatus(message, 100);
+    }
+
+    function initFallbackMap() {
+      state.engine = "svg";
+      const mapNode = document.getElementById("map");
+      mapNode.innerHTML = `
+        <div class="fallback-map">
+          <svg class="fallback-svg" viewBox="0 0 1000 720" role="img" aria-label="Fallback-Kartenvisualisierung"></svg>
+          <div class="fallback-tooltip" id="fallbackTooltip"></div>
+        </div>
+      `;
+      state.fallback.root = mapNode.querySelector(".fallback-map");
+      state.fallback.svg = mapNode.querySelector(".fallback-svg");
+      state.fallback.tooltip = mapNode.querySelector("#fallbackTooltip");
     }
 
     function bindControls() {
@@ -910,6 +1145,7 @@
       renderAllLayers();
       updateMetrics();
       updateIssues();
+
       setStatus("Bereit. Exceldatei laden, um Wohnorte und Zielorte zu rendern.", 100);
     }
 
@@ -920,57 +1156,267 @@
       dom.fileName.textContent = file.name;
       dom.emptyState.hidden = true;
 
-      if (!window.XLSX) {
-        setStatus("SheetJS konnte nicht geladen werden. Bitte mit Internetverbindung neu öffnen.", 0);
-        return;
-      }
-
       try {
         setStatus("Exceldatei wird gelesen.", 4);
-        const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
-        const records = parseRows(rows);
-
-        state.records = records;
-        state.mappedRecords = [];
-        state.issues = state.orientation.filter((point) => point.fallbackUsed).map((point) => `${point.code}: Fallback-Koordinate genutzt`);
-        resetFocus();
-        clearDataLayers();
-        updateMetrics();
-
-        if (!records.length) {
-          setStatus("Keine gültigen Zeilen mit Spalte B und C gefunden.", 0);
-          updateIssues();
-          return;
-        }
-
-        await geocodeRecords(records);
-        renderDataLayers();
-        updateMetrics();
-        updateIssues();
-        fitCurrentBounds();
-        setStatus(`${records.length} Datensätze verarbeitet.`, 100);
+        const rows = await readXlsxRows(file);
+        await loadRecordsFromRows(rows, file.name);
       } catch (error) {
         console.error(error);
         setStatus(`Fehler beim Verarbeiten: ${error.message}`, 0);
       }
     }
 
+    async function loadRecordsFromRows(rows, sourceLabel) {
+      const records = parseRows(rows);
+
+      state.records = records;
+      state.mappedRecords = [];
+      state.issues = state.orientation.filter((point) => point.fallbackUsed).map((point) => `${point.code}: Fallback-Koordinate genutzt`);
+      resetFocus();
+      clearDataLayers();
+      updateMetrics();
+
+      if (!records.length) {
+        setStatus("Keine gültigen Zeilen mit Wohnort und Zielort gefunden.", 0);
+        updateIssues();
+        return;
+      }
+
+      const uniquePlaceCount = countUniquePlaces(records);
+      setStatus(`${records.length} Datensätze gelesen; ${uniquePlaceCount} eindeutige Wohnorte/Zielorte werden geocodiert.`, 6);
+      const geocodedPlaceCount = await geocodeRecords(records);
+      renderDataLayers();
+      updateMetrics();
+      updateIssues();
+      fitCurrentBounds();
+      dom.emptyState.hidden = true;
+      setStatus(`${records.length} Datensätze verarbeitet; ${geocodedPlaceCount} eindeutige Orte/Adressen geocodiert.`, 100);
+    }
+
+    function countUniquePlaces(records) {
+      return new Set(records.flatMap((record) => [record.home, record.target])).size;
+    }
+
+    async function readXlsxRows(file) {
+      if (!/\.xlsx$/i.test(file.name)) {
+        throw new Error("Bitte eine .xlsx-Datei auswählen. Das alte .xls-Format wird nicht unterstützt.");
+      }
+
+      if (typeof DecompressionStream === "undefined") {
+        throw new Error("Dieser Browser unterstützt die integrierte XLSX-Verarbeitung nicht. Bitte Chrome oder Edge verwenden.");
+      }
+
+      const zip = await openZip(await file.arrayBuffer());
+      const workbookXml = await readZipText(zip, "xl/workbook.xml");
+      const workbookRelsXml = await readZipText(zip, "xl/_rels/workbook.xml.rels");
+      const firstSheet = parseFirstWorkbookSheet(workbookXml);
+      const sheetTarget = parseRelationshipTarget(workbookRelsXml, firstSheet.relId);
+      if (!sheetTarget) throw new Error("Das erste Tabellenblatt konnte nicht gefunden werden.");
+
+      const sheetPath = normalizeZipPath("xl", sheetTarget);
+      const sharedStrings = zip.entries.has("xl/sharedStrings.xml")
+        ? parseSharedStrings(await readZipText(zip, "xl/sharedStrings.xml"))
+        : [];
+      const sheetXml = await readZipText(zip, sheetPath);
+      return parseWorksheetRows(sheetXml, sharedStrings);
+    }
+
+    async function openZip(buffer) {
+      const bytes = new Uint8Array(buffer);
+      const view = new DataView(buffer);
+      const eocdOffset = findEndOfCentralDirectory(bytes);
+      const totalEntries = view.getUint16(eocdOffset + 10, true);
+      const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+      const entries = new Map();
+      let offset = centralDirectoryOffset;
+
+      for (let index = 0; index < totalEntries; index += 1) {
+        if (view.getUint32(offset, true) !== 0x02014b50) {
+          throw new Error("Die Exceldatei ist keine gültige .xlsx-Datei.");
+        }
+
+        const method = view.getUint16(offset + 10, true);
+        const compressedSize = view.getUint32(offset + 20, true);
+        const fileNameLength = view.getUint16(offset + 28, true);
+        const extraLength = view.getUint16(offset + 30, true);
+        const commentLength = view.getUint16(offset + 32, true);
+        const localHeaderOffset = view.getUint32(offset + 42, true);
+        const nameStart = offset + 46;
+        const name = new TextDecoder("utf-8").decode(bytes.slice(nameStart, nameStart + fileNameLength));
+
+        entries.set(name, { method, compressedSize, localHeaderOffset });
+        offset = nameStart + fileNameLength + extraLength + commentLength;
+      }
+
+      return { buffer, entries };
+    }
+
+    function findEndOfCentralDirectory(bytes) {
+      const minOffset = Math.max(0, bytes.length - 66000);
+      for (let offset = bytes.length - 22; offset >= minOffset; offset -= 1) {
+        if (
+          bytes[offset] === 0x50 &&
+          bytes[offset + 1] === 0x4b &&
+          bytes[offset + 2] === 0x05 &&
+          bytes[offset + 3] === 0x06
+        ) {
+          return offset;
+        }
+      }
+      throw new Error("Die Exceldatei konnte nicht als .xlsx gelesen werden.");
+    }
+
+    async function readZipText(zip, path) {
+      const data = await readZipBytes(zip, path);
+      return new TextDecoder("utf-8").decode(data);
+    }
+
+    async function readZipBytes(zip, path) {
+      const entry = zip.entries.get(path);
+      if (!entry) throw new Error(`${path} fehlt in der Exceldatei.`);
+
+      const view = new DataView(zip.buffer);
+      const bytes = new Uint8Array(zip.buffer);
+      const offset = entry.localHeaderOffset;
+      if (view.getUint32(offset, true) !== 0x04034b50) {
+        throw new Error("Ein Tabellenbestandteil konnte nicht gelesen werden.");
+      }
+
+      const fileNameLength = view.getUint16(offset + 26, true);
+      const extraLength = view.getUint16(offset + 28, true);
+      const dataStart = offset + 30 + fileNameLength + extraLength;
+      const compressed = bytes.slice(dataStart, dataStart + entry.compressedSize);
+
+      if (entry.method === 0) return compressed;
+      if (entry.method === 8) return inflateRaw(compressed);
+      throw new Error("Die Komprimierung dieser .xlsx-Datei wird nicht unterstützt.");
+    }
+
+    async function inflateRaw(bytes) {
+      try {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      } catch {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      }
+    }
+
+    function parseFirstWorkbookSheet(workbookXml) {
+      const match = workbookXml.match(/<(?:\w+:)?sheet\b[^>]*>/i);
+      if (!match) throw new Error("In der Exceldatei wurde kein Tabellenblatt gefunden.");
+      const attrs = parseXmlAttributes(match[0]);
+      const relId = attrs["r:id"] || attrs.id;
+      if (!relId) throw new Error("Das erste Tabellenblatt hat keine interne Referenz.");
+      return { name: attrs.name || "Sheet1", relId };
+    }
+
+    function parseRelationshipTarget(relsXml, relId) {
+      const relRegex = /<Relationship\b[^>]*>/gi;
+      let match;
+      while ((match = relRegex.exec(relsXml))) {
+        const attrs = parseXmlAttributes(match[0]);
+        if (attrs.Id === relId) return attrs.Target || "";
+      }
+      return "";
+    }
+
+    function parseSharedStrings(sharedXml) {
+      const strings = [];
+      const siRegex = /<(?:\w+:)?si\b[\s\S]*?<\/(?:\w+:)?si>/gi;
+      let match;
+      while ((match = siRegex.exec(sharedXml))) {
+        strings.push(extractTextRuns(match[0]));
+      }
+      return strings;
+    }
+
+    function parseWorksheetRows(sheetXml, sharedStrings) {
+      const rows = [];
+      const rowRegex = /<(?:\w+:)?row\b([^>]*)>([\s\S]*?)<\/(?:\w+:)?row>/gi;
+      let rowMatch;
+
+      while ((rowMatch = rowRegex.exec(sheetXml))) {
+        const rowAttrs = parseXmlAttributes(rowMatch[1]);
+        const rowIndex = Math.max(0, Number(rowAttrs.r || rows.length + 1) - 1);
+        const row = rows[rowIndex] || [];
+        const cellRegex = /<(?:\w+:)?c\b([^>]*)>([\s\S]*?)<\/(?:\w+:)?c>/gi;
+        let cellMatch;
+
+        while ((cellMatch = cellRegex.exec(rowMatch[2]))) {
+          const attrs = parseXmlAttributes(cellMatch[1]);
+          const columnIndex = columnIndexFromReference(attrs.r);
+          if (columnIndex < 0 || columnIndex > 3) continue;
+          row[columnIndex] = readCellValue(attrs, cellMatch[2], sharedStrings);
+        }
+
+        rows[rowIndex] = row;
+      }
+
+      return rows.map((row) => row || []);
+    }
+
+    function readCellValue(attrs, cellXml, sharedStrings) {
+      if (attrs.t === "s") {
+        const index = Number(extractFirstTag(cellXml, "v"));
+        return sharedStrings[index] || "";
+      }
+      if (attrs.t === "inlineStr") return extractTextRuns(cellXml);
+      return decodeXml(extractFirstTag(cellXml, "v") || extractTextRuns(cellXml));
+    }
+
+    function parseXmlAttributes(fragment) {
+      const attrs = {};
+      const attrRegex = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+      let match;
+      while ((match = attrRegex.exec(fragment))) {
+        attrs[match[1]] = decodeXml(match[2] ?? match[3] ?? "");
+      }
+      return attrs;
+    }
+
+    function extractTextRuns(xml) {
+      const parts = [];
+      const textRegex = /<(?:\w+:)?t\b[^>]*>([\s\S]*?)<\/(?:\w+:)?t>/gi;
+      let match;
+      while ((match = textRegex.exec(xml))) {
+        parts.push(decodeXml(match[1]));
+      }
+      return parts.join("");
+    }
+
+    function extractFirstTag(xml, tagName) {
+      const match = new RegExp("<(?:[A-Za-z0-9_]+:)?" + tagName + "\\b[^>]*>([\\s\\S]*?)<\\/(?:[A-Za-z0-9_]+:)?" + tagName + ">", "i").exec(xml);
+      return match ? decodeXml(match[1]) : "";
+    }
+
+    function columnIndexFromReference(reference) {
+      const letters = String(reference || "").match(/[A-Z]+/i);
+      if (!letters) return -1;
+      return letters[0].toUpperCase().split("").reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0) - 1;
+    }
+
+    function normalizeZipPath(base, target) {
+      let path = String(target || "").replaceAll("\\", "/");
+      if (path.startsWith("/")) path = path.slice(1);
+      if (path.startsWith("xl/")) return path;
+      return `${base.replace(/\/$/, "")}/${path}`;
+    }
+
     function parseRows(rows) {
       const nonEmpty = rows.filter((row) => row.some((cell) => String(cell).trim() !== ""));
       if (!nonEmpty.length) return [];
 
-      const startIndex = looksLikeHeader(nonEmpty[0]) ? 1 : 0;
+      const columnIndexes = resolveColumnIndexes(nonEmpty[0]);
+      const startIndex = columnIndexes.hasHeader ? 1 : 0;
       const records = [];
 
       for (let index = startIndex; index < nonEmpty.length; index += 1) {
         const row = nonEmpty[index];
-        const term = cleanCell(row[0]) || `Zeile ${index + 1}`;
-        const home = cleanCell(row[1]);
-        const target = cleanCell(row[2]);
+        const term = cleanCell(row[columnIndexes.term]) || `Zeile ${index + 1}`;
+        const home = cleanCell(row[columnIndexes.home]);
+        const facilityName = cleanCell(row[columnIndexes.facility]);
+        const target = cleanCell(row[columnIndexes.target]);
 
         if (!home && !target) continue;
 
@@ -983,6 +1429,7 @@
           id: records.length + 1,
           rowNumber: index + 1,
           term,
+          facilityName,
           home,
           target
         });
@@ -995,7 +1442,38 @@
       const a = cleanCell(row[0]).toLowerCase();
       const b = cleanCell(row[1]).toLowerCase();
       const c = cleanCell(row[2]).toLowerCase();
-      return b.includes("wohnort") || c.includes("zielort") || a.includes("begriff") || a.includes("name");
+      const d = cleanCell(row[3]).toLowerCase();
+      return b.includes("wohnort") || c.includes("zielort") || d.includes("zielort") || a.includes("begriff") || a.includes("bezeichnung") || c.includes("einrichtung");
+    }
+
+    function resolveColumnIndexes(row) {
+      if (!looksLikeHeader(row)) {
+        const hasFourColumnStructure = cleanCell(row[3]) !== "";
+        return {
+          hasHeader: false,
+          term: 0,
+          home: 1,
+          facility: hasFourColumnStructure ? 2 : -1,
+          target: hasFourColumnStructure ? 3 : 2
+        };
+      }
+
+      const headers = row.map((cell) => cleanCell(cell).toLowerCase());
+      const findHeader = (patterns, fallback) => {
+        const found = headers.findIndex((header) => patterns.some((pattern) => header.includes(pattern)));
+        return found >= 0 ? found : fallback;
+      };
+
+      const facility = findHeader(["einrichtungsname", "einrichtung", "facility"], -1);
+      const targetFallback = facility >= 0 && cleanCell(row[3]) ? 3 : 2;
+
+      return {
+        hasHeader: true,
+        term: findHeader(["bezeichnung", "begriff", "name"], 0),
+        home: findHeader(["wohnort", "start"], 1),
+        facility,
+        target: findHeader(["zielort", "endpunkt"], targetFallback)
+      };
     }
 
     async function geocodeRecords(records) {
@@ -1004,7 +1482,7 @@
 
       for (let index = 0; index < uniquePlaces.length; index += 1) {
         const place = uniquePlaces[index];
-        setStatus(`Geocoding ${index + 1}/${uniquePlaces.length}: ${place}`, 8 + Math.round((index / Math.max(uniquePlaces.length, 1)) * 78));
+        setStatus(`Geocoding Ort/Adresse ${index + 1}/${uniquePlaces.length}: ${place}`, 8 + Math.round((index / Math.max(uniquePlaces.length, 1)) * 78));
         try {
           placeMap.set(place, await geocode(place));
         } catch (error) {
@@ -1013,17 +1491,22 @@
         }
       }
 
-      state.mappedRecords = records.map((record) => {
+      const mappedRecords = records.map((record) => {
         const homeGeo = placeMap.get(record.home);
         const targetGeo = placeMap.get(record.target);
         const mapped = {
           ...record,
+          facilityName: record.facilityName || "",
           homeGeo,
           targetGeo,
           homeTargetKm: null,
           nearestOrientation: null,
           targetOrientationKm: null
         };
+
+        if (!mapped.facilityName && targetGeo) {
+          mapped.facilityName = inferFacilityName(targetGeo, record.target);
+        }
 
         if (homeGeo && targetGeo) {
           mapped.homeTargetKm = haversineKm(homeGeo.coord, targetGeo.coord);
@@ -1038,11 +1521,159 @@
 
         return mapped;
       });
+
+      state.mappedRecords = applyDisplayOffsets(mappedRecords);
+      return uniquePlaces.length;
+    }
+
+    function applyDisplayOffsets(records) {
+      const homeGroups = groupRecordIndexes(records, (record) => record.homeGeo ? `home:${coordKey(record.homeGeo.coord)}` : "");
+      const targetGroups = groupRecordIndexes(records, (record) => record.targetGeo ? `target:${coordKey(record.targetGeo.coord)}` : "");
+
+      return records.map((record, index) => ({
+        ...record,
+        homeDisplayCoord: record.homeGeo ? offsetCoord(record.homeGeo.coord, homeGroups.get(`home:${coordKey(record.homeGeo.coord)}`), index, "home") : null,
+        targetDisplayCoord: record.targetGeo ? offsetCoord(record.targetGeo.coord, targetGroups.get(`target:${coordKey(record.targetGeo.coord)}`), index, "target") : null
+      }));
+    }
+
+    function coordKey(coord) {
+      return `${Number(coord[0]).toFixed(6)},${Number(coord[1]).toFixed(6)}`;
+    }
+
+    function groupRecordIndexes(records, keyFn) {
+      const groups = new Map();
+      records.forEach((record, index) => {
+        const key = keyFn(record);
+        if (!key) return;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(index);
+      });
+      return groups;
+    }
+
+    function offsetCoord(coord, group, recordIndex, type) {
+      if (!group || group.length <= 1) return coord;
+      const position = group.indexOf(recordIndex);
+      if (position < 0) return coord;
+
+      const angle = (Math.PI * 2 * position) / group.length;
+      const baseKm = type === "home" ? 0.75 : 0.34;
+      const radiusKm = Math.min(type === "home" ? 1.15 : 0.56, baseKm + Math.floor(position / 18) * 0.2);
+      const latRad = toRad(coord[0]);
+      const latOffset = (radiusKm * Math.sin(angle)) / 111.32;
+      const lngOffset = (radiusKm * Math.cos(angle)) / (111.32 * Math.max(0.2, Math.cos(latRad)));
+      return [coord[0] + latOffset, coord[1] + lngOffset];
+    }
+
+    function buildTargetClusters(records) {
+      const clustersByKey = new Map();
+
+      records.forEach((record) => {
+        if (!record.targetGeo) return;
+        const key = normalizeForCompare(record.facilityName || record.target);
+        if (!clustersByKey.has(key)) {
+          clustersByKey.set(key, {
+            key,
+            facilityName: record.facilityName || record.target,
+            records: [],
+            targetAddresses: new Set(),
+            coords: []
+          });
+        }
+
+        const cluster = clustersByKey.get(key);
+        cluster.records.push(record);
+        cluster.targetAddresses.add(record.target);
+        cluster.coords.push(record.targetGeo.coord);
+      });
+
+      let clusters = [...clustersByKey.values()].map((cluster) => {
+        const coord = averageCoord(cluster.coords);
+        const nearestOrientation = state.orientation.length ? findNearestOrientation(coord) : null;
+        return {
+          ...cluster,
+          count: cluster.records.length,
+          coord,
+          displayCoord: coord,
+          nearestOrientation,
+          targetOrientationKm: nearestOrientation ? nearestOrientation.distanceKm : null
+        };
+      });
+
+      const coordinateGroups = new Map();
+      clusters.forEach((cluster, index) => {
+        const key = coordKey(cluster.coord);
+        if (!coordinateGroups.has(key)) coordinateGroups.set(key, []);
+        coordinateGroups.get(key).push(index);
+      });
+
+      clusters = clusters.map((cluster, index) => ({
+        ...cluster,
+        displayCoord: offsetCoord(cluster.coord, coordinateGroups.get(coordKey(cluster.coord)), index, "target")
+      }));
+
+      return clusters;
+    }
+
+    function averageCoord(coords) {
+      const sum = coords.reduce((acc, coord) => [acc[0] + coord[0], acc[1] + coord[1]], [0, 0]);
+      return [sum[0] / coords.length, sum[1] / coords.length];
+    }
+
+    function indexClustersByRecordId(clusters) {
+      const index = new Map();
+      clusters.forEach((cluster) => {
+        cluster.records.forEach((record) => index.set(record.id, cluster));
+      });
+      return index;
+    }
+
+    function clusterFocusRows(cluster) {
+      return [
+        ["Einrichtung", cluster.facilityName],
+        ["Anzahl", String(cluster.count)],
+        ["Zieladresse", [...cluster.targetAddresses].join(" | ")],
+        ["Nächster Orientierungspunkt", nearestOrientationLabel(cluster)],
+        { heading: "Patienten:" },
+        ...cluster.records
+          .slice()
+          .sort((a, b) => a.term.localeCompare(b.term, "de", { numeric: true }))
+          .map((record) => `${record.term}, ${formatKmFromHome(record.homeTargetKm)}`)
+      ];
+    }
+
+    function clusterPopup(cluster) {
+      const addressText = [...cluster.targetAddresses].map((target) => escapeHtml(target)).join("<br>");
+      const nearestLabel = nearestOrientationLabel(cluster);
+      const itemList = cluster.records
+        .slice()
+        .sort((a, b) => a.term.localeCompare(b.term, "de", { numeric: true }))
+        .map((record) => `<span>${escapeHtml(record.term)}, ${escapeHtml(formatKmFromHome(record.homeTargetKm))}</span>`)
+        .join("");
+
+      return `
+        <p class="popup-title">${escapeHtml(cluster.facilityName)}</p>
+        <p class="popup-row"><strong>Anzahl:</strong> ${cluster.count}</p>
+        <p class="popup-row"><strong>Zieladresse:</strong><br>${addressText}</p>
+        <p class="popup-row"><strong>Nächster Orientierungspunkt:</strong> ${escapeHtml(nearestLabel)}</p>
+        <div class="popup-list"><strong class="popup-list-title">Patienten:</strong>${itemList}</div>
+      `;
+    }
+
+    function nearestOrientationLabel(cluster) {
+      if (!cluster.nearestOrientation) return "-";
+      const distance = Number.isFinite(cluster.targetOrientationKm) ? `${Math.round(cluster.targetOrientationKm)} km entfernt` : "Entfernung nicht verfügbar";
+      return `${cluster.nearestOrientation.code} - ${cluster.nearestOrientation.name} "${distance}"`;
+    }
+
+    function highlightHomes(recordIds, active) {
+      recordIds.forEach((recordId) => highlightHome(recordId, active));
     }
 
     async function geocode(rawQuery, fallbackCoord) {
       const query = normalizeQuery(rawQuery);
-      const cacheKey = `geo-map-v3:${query.toLowerCase()}`;
+      const cacheKey = `geo-map-v4:${query.toLowerCase()}`;
       const cached = readCache(cacheKey);
       if (cached) return cached;
 
@@ -1053,6 +1684,7 @@
       url.searchParams.set("limit", "1");
       url.searchParams.set("countrycodes", "de");
       url.searchParams.set("addressdetails", "1");
+      url.searchParams.set("namedetails", "1");
       url.searchParams.set("accept-language", "de");
       url.searchParams.set("q", query);
 
@@ -1071,6 +1703,7 @@
           const value = {
             coord: [Number(first.lat), Number(first.lon)],
             displayName: first.display_name || query,
+            name: extractNominatimName(first),
             fallbackUsed: false
           };
           writeCache(cacheKey, value);
@@ -1095,6 +1728,34 @@
       return `${query}, Deutschland`;
     }
 
+    function extractNominatimName(result) {
+      const details = result && result.namedetails ? result.namedetails : {};
+      return cleanCell(details.name || details["name:de"] || result.name || "");
+    }
+
+    function inferFacilityName(geo, target) {
+      if (geo && geo.name && !looksLikeAddressName(geo.name, target)) return geo.name;
+      const firstDisplayPart = cleanCell((geo && geo.displayName ? geo.displayName : "").split(",")[0]);
+      if (firstDisplayPart && !looksLikeAddressName(firstDisplayPart, target)) return firstDisplayPart;
+      return cleanCell(target);
+    }
+
+    function looksLikeAddressName(name, target) {
+      const normalizedName = normalizeForCompare(name);
+      const normalizedTarget = normalizeForCompare(target);
+      return !normalizedName || normalizedTarget.startsWith(normalizedName) || /^\d+[a-z]?$/.test(normalizedName);
+    }
+
+    function normalizeForCompare(value) {
+      return cleanCell(value)
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/straße/g, "strasse")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    }
+
     function readCache(key) {
       try {
         const raw = localStorage.getItem(key);
@@ -1115,7 +1776,7 @@
     function clearGeocodeCache() {
       try {
         Object.keys(localStorage)
-          .filter((key) => key.startsWith("geo-map-v3:"))
+          .filter((key) => key.startsWith("geo-map-v3:") || key.startsWith("geo-map-v4:"))
           .forEach((key) => localStorage.removeItem(key));
         setStatus("Geocoding-Cache geleert.", 100);
       } catch {
@@ -1131,11 +1792,21 @@
     }
 
     function renderAllLayers() {
+      if (state.engine === "svg") {
+        renderFallbackMap();
+        return;
+      }
+
       renderOrientationLayer();
       renderDataLayers();
     }
 
     function renderOrientationLayer() {
+      if (state.engine === "svg") {
+        renderFallbackMap();
+        return;
+      }
+
       state.layers.orientation.clearLayers();
       if (!state.settings.orientation) return;
 
@@ -1172,14 +1843,23 @@
     }
 
     function renderDataLayers() {
+      if (state.engine === "svg") {
+        renderFallbackMap();
+        return;
+      }
+
       clearDataLayers();
+      state.homeMarkers.clear();
 
       const records = filteredRecords();
+      const targetClusters = buildTargetClusters(records);
+      const targetClusterByRecordId = indexClustersByRecordId(targetClusters);
 
       if (state.settings.lines) {
         records.forEach((record) => {
           if (!record.homeGeo || !record.targetGeo) return;
-          L.polyline([record.homeGeo.coord, record.targetGeo.coord], {
+          const cluster = targetClusterByRecordId.get(record.id);
+          L.polyline([record.homeDisplayCoord || record.homeGeo.coord, cluster ? cluster.displayCoord : record.targetGeo.coord], {
             color: "#718096",
             weight: 1.35,
             opacity: 0.34,
@@ -1191,7 +1871,7 @@
       if (state.settings.homes) {
         records.forEach((record) => {
           if (!record.homeGeo || record.homeTargetKm === null) return;
-          const marker = L.circleMarker(record.homeGeo.coord, {
+          const marker = L.circleMarker(record.homeDisplayCoord || record.homeGeo.coord, {
             radius: 6,
             color: "#ffffff",
             weight: 2,
@@ -1212,25 +1892,31 @@
             type: "Wohnort",
             title: record.term,
             rows: [
+              { heading: "Patienten:" },
+              record.term,
               ["Wohnort", record.home],
+              ["Einrichtungsname", record.facilityName || "-"],
               ["Zielort", record.target],
               ["Entfernung", formatKm(record.homeTargetKm)]
             ],
             popup: pointPopup("Wohnort", record.term, [
+              { heading: "Patienten:" },
+              record.term,
               ["Wohnort", record.home],
+              ["Einrichtungsname", record.facilityName || "-"],
               ["Zielort", record.target],
               ["Entfernung", formatKm(record.homeTargetKm)]
             ])
           });
 
+          state.homeMarkers.set(record.id, marker);
           marker.addTo(state.layers.homes);
         });
       }
 
       if (state.settings.targets) {
-        records.forEach((record) => {
-          if (!record.targetGeo || record.targetOrientationKm === null) return;
-          const marker = L.circleMarker(record.targetGeo.coord, {
+        targetClusters.forEach((cluster) => {
+          const marker = L.circleMarker(cluster.displayCoord, {
             radius: 6,
             color: "#ffffff",
             weight: 2,
@@ -1239,7 +1925,7 @@
           });
 
           if (state.settings.labels) {
-            marker.bindTooltip(formatKm(record.targetOrientationKm), {
+            marker.bindTooltip(String(cluster.count), {
               permanent: true,
               direction: "left",
               offset: [-8, 0],
@@ -1247,20 +1933,14 @@
             });
           }
 
-          const nearestLabel = record.nearestOrientation ? `${record.nearestOrientation.code} - ${record.nearestOrientation.name}` : "-";
           attachHover(marker, {
-            type: "Zielort",
-            title: record.term,
-            rows: [
-              ["Zielort", record.target],
-              ["Nächster Orientierungspunkt", nearestLabel],
-              ["Entfernung", formatKm(record.targetOrientationKm)]
-            ],
-            popup: pointPopup("Zielort", record.term, [
-              ["Zielort", record.target],
-              ["Nächster Orientierungspunkt", nearestLabel],
-              ["Entfernung", formatKm(record.targetOrientationKm)]
-            ])
+            type: "Zielort-Cluster",
+            title: cluster.facilityName,
+            rows: clusterFocusRows(cluster),
+            popup: clusterPopup(cluster)
+          }, {
+            onEnter: () => highlightHomes(cluster.records.map((record) => record.id), true),
+            onLeave: () => highlightHomes(cluster.records.map((record) => record.id), false)
           });
 
           marker.addTo(state.layers.targets);
@@ -1269,12 +1949,278 @@
     }
 
     function clearDataLayers() {
+      if (state.engine === "svg") return;
       state.layers.lines.clearLayers();
       state.layers.homes.clearLayers();
       state.layers.targets.clearLayers();
     }
 
-    function attachHover(layer, payload) {
+    function highlightHome(recordId, active) {
+      if (state.engine === "leaflet") {
+        const marker = state.homeMarkers.get(recordId);
+        if (!marker) return;
+        marker.setRadius(active ? 6.6 : 6);
+        marker.setStyle({
+          weight: active ? 3 : 2,
+          fillOpacity: active ? 1 : 0.92
+        });
+        if (active && marker.bringToFront) marker.bringToFront();
+        return;
+      }
+
+      const marker = state.homeSvgMarkers.get(recordId);
+      if (!marker) return;
+      marker.circle.setAttribute("r", active ? String(marker.radius * 1.1) : String(marker.radius));
+      marker.circle.setAttribute("stroke-width", active ? "3" : "2.4");
+      if (active) marker.group.parentNode.appendChild(marker.group);
+    }
+
+    function renderFallbackMap() {
+      if (!state.fallback.svg) return;
+
+      const svg = state.fallback.svg;
+      const records = filteredRecords();
+      const targetClusters = buildTargetClusters(records);
+      const targetClusterByRecordId = indexClustersByRecordId(targetClusters);
+      const visiblePoints = [];
+      state.homeSvgMarkers.clear();
+
+      if (state.settings.orientation) {
+        state.orientation.forEach((point) => visiblePoints.push(point.coord));
+      }
+      records.forEach((record) => {
+        if (state.settings.homes && record.homeGeo) visiblePoints.push(record.homeDisplayCoord || record.homeGeo.coord);
+      });
+      if (state.settings.targets) {
+        targetClusters.forEach((cluster) => visiblePoints.push(cluster.displayCoord));
+      }
+
+      const bounds = createGeoBounds(visiblePoints);
+      svg.innerHTML = "";
+      drawFallbackBase(svg);
+
+      if (state.settings.lines) {
+        records.forEach((record) => {
+          if (!record.homeGeo || !record.targetGeo) return;
+          const cluster = targetClusterByRecordId.get(record.id);
+          const start = projectPoint(record.homeDisplayCoord || record.homeGeo.coord, bounds);
+          const end = projectPoint(cluster ? cluster.displayCoord : record.targetGeo.coord, bounds);
+          addSvg(svg, "path", {
+            d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
+            class: "fallback-line"
+          });
+        });
+      }
+
+      if (state.settings.orientation) {
+        state.orientation.forEach((point) => {
+          const projected = projectPoint(point.coord, bounds);
+          addFallbackMarker({
+            svg,
+            x: projected.x,
+            y: projected.y,
+            className: "orientation",
+            label: point.code,
+            labelSide: "top",
+            payload: {
+              type: "Orientierungspunkt",
+              title: `${point.code} - ${point.name}`,
+              rows: [
+                ["Adresse", point.address],
+                ["Geocoding", point.fallbackUsed ? "Fallback-Koordinate" : "Nominatim-Treffer"]
+              ],
+              html: orientationPopup(point)
+            }
+          });
+        });
+      }
+
+      if (state.settings.homes) {
+        records.forEach((record) => {
+          if (!record.homeGeo || record.homeTargetKm === null) return;
+          const projected = projectPoint(record.homeDisplayCoord || record.homeGeo.coord, bounds);
+          const marker = addFallbackMarker({
+            svg,
+            x: projected.x,
+            y: projected.y,
+            className: "home",
+            label: formatKm(record.homeTargetKm),
+            labelSide: "right",
+            payload: {
+              type: "Wohnort",
+              title: record.term,
+              rows: [
+                { heading: "Patienten:" },
+                record.term,
+                ["Wohnort", record.home],
+                ["Einrichtungsname", record.facilityName || "-"],
+                ["Zielort", record.target],
+                ["Entfernung", formatKm(record.homeTargetKm)]
+              ],
+              html: pointPopup("Wohnort", record.term, [
+                { heading: "Patienten:" },
+                record.term,
+                ["Wohnort", record.home],
+                ["Einrichtungsname", record.facilityName || "-"],
+                ["Zielort", record.target],
+                ["Entfernung", formatKm(record.homeTargetKm)]
+              ])
+            }
+          });
+          state.homeSvgMarkers.set(record.id, marker);
+        });
+      }
+
+      if (state.settings.targets) {
+        targetClusters.forEach((cluster) => {
+          const projected = projectPoint(cluster.displayCoord, bounds);
+          addFallbackMarker({
+            svg,
+            x: projected.x,
+            y: projected.y,
+            className: "target",
+            label: String(cluster.count),
+            labelSide: "left",
+            payload: {
+              type: "Zielort-Cluster",
+              title: cluster.facilityName,
+              rows: clusterFocusRows(cluster),
+              html: clusterPopup(cluster)
+            },
+            onEnter: () => highlightHomes(cluster.records.map((record) => record.id), true),
+            onLeave: () => highlightHomes(cluster.records.map((record) => record.id), false)
+          });
+        });
+      }
+
+      addSvg(svg, "text", {
+        x: 30,
+        y: 690,
+        class: "fallback-caption"
+      }, state.engine === "svg" ? "Fallback-Karte ohne externe Kartenskripte" : "");
+    }
+
+    function drawFallbackBase(svg) {
+      addSvg(svg, "path", {
+        d: "M 170 120 C 260 60, 405 72, 515 116 C 690 185, 795 320, 805 455 C 812 571, 702 632, 560 645 C 390 661, 236 610, 165 500 C 98 397, 78 214, 170 120 Z",
+        class: "fallback-region"
+      });
+
+      for (let x = 120; x <= 880; x += 120) {
+        addSvg(svg, "line", { x1: x, y1: 70, x2: x, y2: 650, class: "fallback-grid" });
+      }
+      for (let y = 120; y <= 620; y += 100) {
+        addSvg(svg, "line", { x1: 80, y1: y, x2: 920, y2: y, class: "fallback-grid" });
+      }
+    }
+
+    function addFallbackMarker({ svg, x, y, className, label, labelSide, payload, onEnter, onLeave }) {
+      const group = addSvg(svg, "g", { tabindex: "0" });
+      const radius = className === "orientation" ? 7 : 6;
+      const circle = addSvg(group, "circle", {
+        cx: x,
+        cy: y,
+        r: radius,
+        class: `fallback-point ${className}`
+      });
+
+      if (state.settings.labels && label) {
+        const labelMetrics = fallbackLabelMetrics(x, y, label, labelSide);
+        addSvg(group, "rect", {
+          x: labelMetrics.bgX,
+          y: labelMetrics.bgY,
+          width: labelMetrics.width,
+          height: 22,
+          rx: 4,
+          class: `fallback-label-bg ${className}`
+        });
+        addSvg(group, "text", {
+          x: labelMetrics.textX,
+          y: labelMetrics.textY,
+          class: `fallback-label ${className}`
+        }, label);
+      }
+
+      const show = (event) => {
+        setFocus(payload.type, payload.title, payload.rows);
+        if (onEnter) onEnter();
+        if (typeof event.clientX === "number") showFallbackTooltip(event, payload.html);
+      };
+      const hide = () => {
+        if (onLeave) onLeave();
+        hideFallbackTooltip();
+      };
+      group.addEventListener("mouseenter", show);
+      group.addEventListener("mousemove", (event) => showFallbackTooltip(event, payload.html));
+      group.addEventListener("mouseleave", hide);
+      group.addEventListener("focus", (event) => show(event));
+      group.addEventListener("blur", hide);
+      circle.addEventListener("click", () => setFocus(payload.type, payload.title, payload.rows));
+
+      return { group, circle, radius };
+    }
+
+    function fallbackLabelMetrics(x, y, label, side) {
+      const width = Math.max(34, label.length * 7 + 15);
+      if (side === "left") {
+        return { bgX: x - width - 14, bgY: y - 11, textX: x - width - 6, textY: y + 0.5, width };
+      }
+      if (side === "top") {
+        return { bgX: x - width / 2, bgY: y - 34, textX: x - width / 2 + 7, textY: y - 23, width };
+      }
+      return { bgX: x + 12, bgY: y - 11, textX: x + 19, textY: y + 0.5, width };
+    }
+
+    function showFallbackTooltip(event, html) {
+      if (!state.fallback.tooltip || !state.fallback.root) return;
+      const rect = state.fallback.root.getBoundingClientRect();
+      state.fallback.tooltip.innerHTML = html;
+      state.fallback.tooltip.style.display = "block";
+      const maxLeft = Math.max(8, rect.width - 300);
+      const maxTop = Math.max(8, rect.height - 150);
+      state.fallback.tooltip.style.left = `${Math.min(maxLeft, Math.max(8, event.clientX - rect.left + 14))}px`;
+      state.fallback.tooltip.style.top = `${Math.min(maxTop, Math.max(8, event.clientY - rect.top + 14))}px`;
+    }
+
+    function hideFallbackTooltip() {
+      if (state.fallback.tooltip) state.fallback.tooltip.style.display = "none";
+    }
+
+    function createGeoBounds(points) {
+      const list = points.length ? points : [[51.19, 6.56], ...ORIENTATION_POINTS.map((point) => point.fallback)];
+      const lats = list.map((point) => point[0]);
+      const lngs = list.map((point) => point[1]);
+      const latPadding = Math.max(0.025, (Math.max(...lats) - Math.min(...lats)) * 0.18);
+      const lngPadding = Math.max(0.025, (Math.max(...lngs) - Math.min(...lngs)) * 0.18);
+      return {
+        minLat: Math.min(...lats) - latPadding,
+        maxLat: Math.max(...lats) + latPadding,
+        minLng: Math.min(...lngs) - lngPadding,
+        maxLng: Math.max(...lngs) + lngPadding
+      };
+    }
+
+    function projectPoint(coord, bounds) {
+      const width = 1000;
+      const height = 720;
+      const pad = 72;
+      const lngSpan = Math.max(0.0001, bounds.maxLng - bounds.minLng);
+      const latSpan = Math.max(0.0001, bounds.maxLat - bounds.minLat);
+      return {
+        x: pad + ((coord[1] - bounds.minLng) / lngSpan) * (width - pad * 2),
+        y: pad + ((bounds.maxLat - coord[0]) / latSpan) * (height - pad * 2)
+      };
+    }
+
+    function addSvg(parent, tagName, attributes, text) {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", tagName);
+      Object.entries(attributes || {}).forEach(([key, value]) => element.setAttribute(key, value));
+      if (text) element.textContent = text;
+      parent.appendChild(element);
+      return element;
+    }
+
+    function attachHover(layer, payload, hooks = {}) {
       layer.bindPopup(payload.popup, {
         closeButton: false,
         autoPan: false,
@@ -1283,9 +2229,11 @@
 
       layer.on("mouseover", () => {
         setFocus(payload.type, payload.title, payload.rows);
+        if (hooks.onEnter) hooks.onEnter();
         layer.openPopup();
       });
       layer.on("mouseout", () => {
+        if (hooks.onLeave) hooks.onLeave();
         layer.closePopup();
       });
       layer.on("click", () => {
@@ -1297,7 +2245,16 @@
       dom.focusType.textContent = type;
       dom.focusTitle.textContent = title;
       dom.focusMeta.innerHTML = rows
-        .map(([label, value]) => `<span><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</span>`)
+        .map((row) => {
+          if (row && typeof row === "object" && !Array.isArray(row) && row.heading) {
+            return `<span><strong>${escapeHtml(row.heading)}</strong></span>`;
+          }
+          if (Array.isArray(row)) {
+            const [label, value] = row;
+            return `<span><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</span>`;
+          }
+          return `<span>${escapeHtml(row)}</span>`;
+        })
         .join("");
     }
 
@@ -1311,7 +2268,16 @@
       return `
         <p class="popup-title">${escapeHtml(title)}</p>
         <p class="popup-row"><strong>Typ:</strong> ${escapeHtml(type)}</p>
-        ${rows.map(([label, value]) => `<p class="popup-row"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`).join("")}
+        ${rows.map((row) => {
+          if (row && typeof row === "object" && !Array.isArray(row) && row.heading) {
+            return `<p class="popup-row"><strong>${escapeHtml(row.heading)}</strong></p>`;
+          }
+          if (Array.isArray(row)) {
+            const [label, value] = row;
+            return `<p class="popup-row"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>`;
+          }
+          return `<p class="popup-row">${escapeHtml(row)}</p>`;
+        }).join("")}
       `;
     }
 
@@ -1325,7 +2291,7 @@
     function filteredRecords() {
       if (!state.search) return state.mappedRecords;
       return state.mappedRecords.filter((record) => {
-        const haystack = `${record.term} ${record.home} ${record.target}`.toLowerCase();
+        const haystack = `${record.term} ${record.home} ${record.facilityName || ""} ${record.target}`.toLowerCase();
         return haystack.includes(state.search);
       });
     }
@@ -1357,16 +2323,26 @@
     }
 
     function fitCurrentBounds() {
+      if (state.engine === "svg") {
+        renderFallbackMap();
+        return;
+      }
+
       const bounds = [];
 
       if (state.settings.orientation) {
         state.orientation.forEach((point) => bounds.push(point.coord));
       }
 
-      filteredRecords().forEach((record) => {
-        if (state.settings.homes && record.homeGeo) bounds.push(record.homeGeo.coord);
-        if (state.settings.targets && record.targetGeo) bounds.push(record.targetGeo.coord);
+      const records = filteredRecords();
+      const targetClusters = buildTargetClusters(records);
+
+      records.forEach((record) => {
+        if (state.settings.homes && record.homeGeo) bounds.push(record.homeDisplayCoord || record.homeGeo.coord);
       });
+      if (state.settings.targets) {
+        targetClusters.forEach((cluster) => bounds.push(cluster.displayCoord));
+      }
 
       if (!bounds.length) {
         state.map.setView([51.19, 6.56], 10);
@@ -1411,6 +2387,16 @@
       return `${Math.round(value)} km`;
     }
 
+    function formatKmCompact(value) {
+      if (!Number.isFinite(value)) return "-";
+      return `${Math.round(value)}km`;
+    }
+
+    function formatKmFromHome(value) {
+      if (!Number.isFinite(value)) return "- vom Wohnort entfernt";
+      return `${Math.round(value)}km vom Wohnort entfernt`;
+    }
+
     function setStatus(message, progress) {
       dom.statusText.textContent = message;
       dom.progressBar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
@@ -1422,6 +2408,17 @@
 
     function sleep(ms) {
       return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    function decodeXml(value) {
+      return String(value ?? "")
+        .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+        .replace(/&#([0-9]+);/g, (_, number) => String.fromCodePoint(parseInt(number, 10)))
+        .replaceAll("&quot;", '"')
+        .replaceAll("&apos;", "'")
+        .replaceAll("&lt;", "<")
+        .replaceAll("&gt;", ">")
+        .replaceAll("&amp;", "&");
     }
 
     function escapeHtml(value) {
