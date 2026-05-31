@@ -592,10 +592,10 @@
 
     .fallback-line {
       fill: none;
-      stroke: #718096;
-      stroke-width: 1.5;
-      stroke-dasharray: 6 8;
-      opacity: 0.45;
+      stroke: #4a5568;       /* Dunklere Linienfarbe */
+      stroke-width: 2.5;     /* Höhere Linienstärke */
+      /* stroke-dasharray: 6 8; */ /* Auskommentieren, wenn die Linie durchgezogen sein soll */
+      opacity: 0.8;          /* Höhere Deckkraft */
     }
 
     .fallback-point {
@@ -2012,11 +2012,11 @@
           if (!record.homeGeo || !record.targetGeo) return;
           const homeCluster = homeClusterByRecordId.get(record.id);
           const cluster = targetClusterByRecordId.get(record.id);
-          L.polyline([homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, cluster ? cluster.displayCoord : record.targetGeo.coord], {
-            color: "#718096",
-            weight: 1.35,
-            opacity: 0.34,
-            dashArray: "5 7"
+          L.polyline([homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, cluster ? cluster.displayCoord : record.targetGeo.coord], { 
+            color: "#4a5568",   // Dunkleres Graublau (oder z. B. "#1f6feb" für Blau)
+            weight: 2.5,         // Strichstärke von 1.35 auf 2.5 erhöht
+            opacity: 0.75        // Deckkraft von 34% auf 75% erhöht
+            // dashArray entfernt oder auskommentiert für eine durchgezogene Linie
           }).addTo(state.layers.lines);
         });
       }
