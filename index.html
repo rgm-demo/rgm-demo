@@ -18,6 +18,8 @@
       --black: #121212;
       --red: #d61f2c;
       --red-soft: #fff1f2;
+      --purple: #7c3aed;
+      --purple-soft: #f3e8ff;
       --green: #087f5b;
       --shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
       --sidebar: 382px;
@@ -220,6 +222,14 @@
       border-color: #cbd5e1;
     }
 
+    .special-select {
+      width: 100%;
+      justify-content: flex-start;
+      gap: 9px;
+      color: var(--ink);
+      text-align: left;
+    }
+
     .button-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -326,6 +336,10 @@
 
     .dot.red {
       background: var(--red);
+    }
+
+    .dot.purple {
+      background: var(--purple);
     }
 
     .dot.line {
@@ -501,9 +515,20 @@
       border-color: rgba(255, 255, 255, 0.18);
     }
 
+    .special-label {
+      color: #581c87;
+      background: rgba(243, 232, 255, 0.97);
+      border-color: rgba(124, 58, 237, 0.28);
+    }
+
     .orientation-label {
       color: #b91c1c;
       background: rgba(255, 241, 242, 0.98);
+      cursor: pointer;
+    }
+
+    .orientation-label.leaflet-interactive {
+      pointer-events: auto;
     }
 
     .insight-popup .leaflet-popup-content-wrapper {
@@ -517,6 +542,15 @@
       margin: 12px 14px;
       font-size: 12px;
       line-height: 1.35;
+    }
+
+    .pinned-info-popup {
+      pointer-events: none;
+    }
+
+    .pinned-info-popup .leaflet-popup-content-wrapper,
+    .pinned-info-popup .leaflet-popup-tip {
+      opacity: 0.72;
     }
 
     .popup-title {
@@ -598,6 +632,22 @@
       opacity: 0.45;
     }
 
+    .fallback-selection-line {
+      fill: none;
+      stroke-width: 3.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.92;
+    }
+
+    .fallback-selection-line.blue {
+      stroke: var(--blue);
+    }
+
+    .fallback-selection-line.black {
+      stroke: var(--black);
+    }
+
     .fallback-point {
       cursor: pointer;
       stroke: #ffffff;
@@ -610,6 +660,10 @@
 
     .fallback-point.target {
       fill: var(--black);
+    }
+
+    .fallback-point.special {
+      fill: var(--purple);
     }
 
     .fallback-point.orientation {
@@ -643,8 +697,24 @@
       stroke: rgba(255, 255, 255, 0.18);
     }
 
+    .fallback-label.special {
+      fill: #581c87;
+    }
+
+    .fallback-label-bg.special {
+      fill: rgba(243, 232, 255, 0.97);
+      stroke: rgba(124, 58, 237, 0.28);
+    }
+
     .fallback-label.orientation {
       fill: #b91c1c;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    .fallback-label-bg.orientation {
+      cursor: pointer;
+      pointer-events: auto;
     }
 
     .fallback-caption {
@@ -669,6 +739,11 @@
       font-size: 12px;
       line-height: 1.35;
       pointer-events: none;
+    }
+
+    .fallback-tooltip.pinned {
+      z-index: 5;
+      opacity: 0.72;
     }
 
     @media (max-width: 980px) {
@@ -750,7 +825,7 @@
         <h1>Interaktives Kartenmapping</h1>
       </div>
       <div class="status-strip" aria-live="polite">
-        <div class="status-pill" id="statusText">Bereit. Orientierungspunkte werden geladen.</div>
+        <div class="status-pill" id="statusText">Bereit. SAG KZP-Einrichtungen werden geladen.</div>
         <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
       </div>
     </header>
@@ -808,12 +883,12 @@
             </label>
             <label class="toggle">
               <input type="checkbox" id="toggleOrientation" checked>
-              <span>Orientierungspunkte</span>
+              <span>SAG KZP-Einrichtungen</span>
               <span class="dot red"></span>
             </label>
             <label class="toggle">
               <input type="checkbox" id="toggleLines" checked>
-              <span>Verbindungen</span>
+              <span>Klick-Verbindungen</span>
               <span class="dot line"></span>
             </label>
             <label class="toggle">
@@ -822,6 +897,14 @@
               <span></span>
             </label>
           </div>
+        </section>
+
+        <section class="control-block">
+          <h2 class="block-title">Sonderpunkt</h2>
+          <button class="button secondary special-select" id="selectAlloheimButton" type="button">
+            <span class="dot purple" aria-hidden="true"></span>
+            <span>Alloheim an der Niers</span>
+          </button>
         </section>
 
         <section class="control-block">
@@ -845,7 +928,7 @@
         <section class="control-block">
           <p class="source-note">
             Kartendaten: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>.
-            Geocoding: <a href="https://nominatim.org/" target="_blank" rel="noreferrer">Nominatim</a>.
+            Geocoding: <a href="https://photon.komoot.io/" target="_blank" rel="noreferrer">Photon</a> und <a href="https://nominatim.org/" target="_blank" rel="noreferrer">Nominatim</a>.
           </p>
         </section>
       </aside>
@@ -853,14 +936,15 @@
       <section class="map-wrap" aria-label="Kartenvisualisierung">
         <div id="map"></div>
         <div class="empty-state" id="emptyState">
-          <h2>Rohdaten-Mapping.xlsx auswählen</h2>
-          <p>Die Karte nutzt Spalte A als Bezeichnung, Spalte B als Postleitzahl des Wohnorts, Spalte C als Einrichtungsname und Spalte D als Zielort. Die festen Orientierungspunkte sind bereits hinterlegt.</p>
+          <h2>Rohdaten-Mapping-Neu.xlsx auswählen</h2>
+          <p>Die Karte nutzt Sheet1 für die Patientendaten und Quellen_Einrichtungen für geprüfte Zieladressen. Spalte B wird auf die erste Postleitzahl des Wohnorts reduziert.</p>
         </div>
         <div class="legend" aria-label="Legende">
           <div class="legend-row"><span class="dot blue"></span><span>Wohnort-Cluster je Postleitzahl mit Anzahl</span></div>
           <div class="legend-row"><span class="dot black"></span><span>Zielort-Cluster je Einrichtung mit Anzahl</span></div>
-          <div class="legend-row"><span class="dot red"></span><span>Feste Orientierungspunkte mit Kürzel</span></div>
-          <div class="legend-row"><span class="dot line"></span><span>Wohnort-Ziel-Verbindung</span></div>
+          <div class="legend-row"><span class="dot purple"></span><span>Alloheim an der Niers als Sonderpunkt</span></div>
+          <div class="legend-row"><span class="dot red"></span><span>SAG KZP-Einrichtungen mit klickbarem Kürzel</span></div>
+          <div class="legend-row"><span class="dot line"></span><span>Verbindungen nach Klickauswahl</span></div>
         </div>
       </section>
     </main>
@@ -925,17 +1009,29 @@
       }
     ];
 
+    const ALLOHEIM_NIERS = {
+      key: "alloheim-an-der-niers",
+      facilityName: "Alloheim an der Niers",
+      facilityFullName: "Alloheim Senioren-Residenz An der Niers",
+      addressKey: "mulgaustrasse 370 41238 monchengladbach",
+      shortKeys: ["alloheim niers", "alloheim an der niers"],
+      color: "#7c3aed"
+    };
+
     const state = {
       map: null,
       layers: {},
       engine: "leaflet",
       homeMarkers: new Map(),
       homeSvgMarkers: new Map(),
-      lineMarkers: new Map(),
+      activeSelection: null,
+      activeInfo: null,
+      pinnedPopup: null,
       fallback: {
         root: null,
         svg: null,
-        tooltip: null
+        tooltip: null,
+        pinnedTooltip: null
       },
       records: [],
       mappedRecords: [],
@@ -973,7 +1069,8 @@
       toggleTargets: document.getElementById("toggleTargets"),
       toggleOrientation: document.getElementById("toggleOrientation"),
       toggleLines: document.getElementById("toggleLines"),
-      toggleLabels: document.getElementById("toggleLabels")
+      toggleLabels: document.getElementById("toggleLabels"),
+      selectAlloheimButton: document.getElementById("selectAlloheimButton")
     };
 
     window.addEventListener("load", async () => {
@@ -1060,11 +1157,13 @@
       });
 
       state.layers.lines = L.layerGroup().addTo(state.map);
+      state.layers.selection = L.layerGroup().addTo(state.map);
       state.layers.homes = L.layerGroup().addTo(state.map);
       state.layers.targets = L.layerGroup().addTo(state.map);
       state.layers.orientation = L.layerGroup().addTo(state.map);
 
       L.control.scale({ imperial: false, metric: true }).addTo(state.map);
+      state.map.on("click", () => clearActiveSelection());
 
       window.setTimeout(() => {
         const pane = document.querySelector(".leaflet-pane");
@@ -1093,11 +1192,13 @@
         <div class="fallback-map">
           <svg class="fallback-svg" viewBox="0 0 1000 720" role="img" aria-label="Fallback-Kartenvisualisierung"></svg>
           <div class="fallback-tooltip" id="fallbackTooltip"></div>
+          <div class="fallback-tooltip pinned" id="fallbackPinnedTooltip"></div>
         </div>
       `;
       state.fallback.root = mapNode.querySelector(".fallback-map");
       state.fallback.svg = mapNode.querySelector(".fallback-svg");
       state.fallback.tooltip = mapNode.querySelector("#fallbackTooltip");
+      state.fallback.pinnedTooltip = mapNode.querySelector("#fallbackPinnedTooltip");
     }
 
     function bindControls() {
@@ -1109,6 +1210,7 @@
       });
       dom.fitButton.addEventListener("click", fitCurrentBounds);
       dom.cacheButton.addEventListener("click", clearGeocodeCache);
+      dom.selectAlloheimButton.addEventListener("click", selectAlloheimFromSidebar);
 
       const bindings = [
         [dom.toggleHomes, "homes"],
@@ -1127,7 +1229,7 @@
     }
 
     async function loadOrientation() {
-      setStatus("Orientierungspunkte werden geocodiert.", 10);
+      setStatus("SAG KZP-Einrichtungen werden geocodiert.", 10);
       const points = [];
       const issues = [];
 
@@ -1159,20 +1261,24 @@
 
       try {
         setStatus("Exceldatei wird gelesen.", 4);
-        const rows = await readXlsxRows(file);
-        await loadRecordsFromRows(rows, file.name);
+        const workbook = await readXlsxWorkbook(file);
+        await loadRecordsFromWorkbook(workbook, file.name);
       } catch (error) {
         console.error(error);
         setStatus(`Fehler beim Verarbeiten: ${error.message}`, 0);
       }
     }
 
-    async function loadRecordsFromRows(rows, sourceLabel) {
-      const records = parseRows(rows);
+    async function loadRecordsFromWorkbook(workbook, sourceLabel) {
+      state.issues = state.orientation.filter((point) => point.fallbackUsed).map((point) => `${point.code}: Fallback-Koordinate genutzt`);
+      const sourceIndex = parseSourceRows(workbook.sourceRows);
+      const records = applySourceCorrections(parseRows(workbook.recordRows), sourceIndex);
 
       state.records = records;
       state.mappedRecords = [];
-      state.issues = state.orientation.filter((point) => point.fallbackUsed).map((point) => `${point.code}: Fallback-Koordinate genutzt`);
+      state.activeSelection = null;
+      state.activeInfo = null;
+      clearPinnedInfo();
       resetFocus();
       clearDataLayers();
       updateMetrics();
@@ -1198,7 +1304,7 @@
       return new Set(records.flatMap((record) => [record.home, record.target])).size;
     }
 
-    async function readXlsxRows(file) {
+    async function readXlsxWorkbook(file) {
       if (!/\.xlsx$/i.test(file.name)) {
         throw new Error("Bitte eine .xlsx-Datei auswählen. Das alte .xls-Format wird nicht unterstützt.");
       }
@@ -1210,14 +1316,22 @@
       const zip = await openZip(await file.arrayBuffer());
       const workbookXml = await readZipText(zip, "xl/workbook.xml");
       const workbookRelsXml = await readZipText(zip, "xl/_rels/workbook.xml.rels");
-      const dataSheet = parseWorkbookSheet(workbookXml, "Sheet1");
-      const sheetTarget = parseRelationshipTarget(workbookRelsXml, dataSheet.relId);
-      if (!sheetTarget) throw new Error("Das Tabellenblatt Sheet1 konnte nicht gefunden werden.");
-
-      const sheetPath = normalizeZipPath("xl", sheetTarget);
       const sharedStrings = zip.entries.has("xl/sharedStrings.xml")
         ? parseSharedStrings(await readZipText(zip, "xl/sharedStrings.xml"))
         : [];
+
+      return {
+        recordRows: await readWorkbookSheetRows(zip, workbookXml, workbookRelsXml, sharedStrings, "Sheet1"),
+        sourceRows: await readWorkbookSheetRows(zip, workbookXml, workbookRelsXml, sharedStrings, "Quellen_Einrichtungen")
+      };
+    }
+
+    async function readWorkbookSheetRows(zip, workbookXml, workbookRelsXml, sharedStrings, sheetName) {
+      const sheet = parseWorkbookSheet(workbookXml, sheetName);
+      const sheetTarget = parseRelationshipTarget(workbookRelsXml, sheet.relId);
+      if (!sheetTarget) throw new Error(`Das Tabellenblatt ${sheetName} konnte nicht gefunden werden.`);
+
+      const sheetPath = normalizeZipPath("xl", sheetTarget);
       const sheetXml = await readZipText(zip, sheetPath);
       return parseWorksheetRows(sheetXml, sharedStrings);
     }
@@ -1425,18 +1539,24 @@
       for (let index = startIndex; index < nonEmpty.length; index += 1) {
         const row = nonEmpty[index];
         const term = cleanCell(row[columnIndexes.term]) || `Zeile ${index + 1}`;
-        const home = cleanCell(row[columnIndexes.home]);
+        const homeRaw = cleanCell(row[columnIndexes.home]);
+        const homePostcode = extractPostcode(homeRaw);
+        const home = homePostcode || homeRaw;
         const facilityName = cleanCell(row[columnIndexes.facility]);
         const target = cleanCell(row[columnIndexes.target]);
 
-        if (!home && !target) continue;
+        if (!homeRaw && !target) continue;
 
-        if (!home || !target) {
+        if (!homeRaw || !target) {
           state.issues.push(`Zeile ${index + 1}: Wohnort oder Zielort fehlt`);
           continue;
         }
 
-        const packageKey = JSON.stringify([term, home, facilityName, target]);
+        if (!homePostcode) {
+          state.issues.push(`Zeile ${index + 1}: keine 5-stellige PLZ in Spalte B gefunden`);
+        }
+
+        const packageKey = JSON.stringify([term, homeRaw, facilityName, target]);
         if (seenPackages.has(packageKey)) {
           state.issues.push(`Zeile ${index + 1}: doppeltes Datenpaket aus Spalte A-D übersprungen`);
           continue;
@@ -1448,12 +1568,95 @@
           rowNumber: index + 1,
           term,
           facilityName,
+          facilityFullName: facilityName,
           home,
+          homeRaw,
+          homePostcode,
           target
         });
       }
 
       return records;
+    }
+
+    function parseSourceRows(rows) {
+      const nonEmpty = rows.filter((row) => row.some((cell) => String(cell).trim() !== ""));
+      const sources = {
+        byAddress: new Map(),
+        byShortName: new Map()
+      };
+      if (!nonEmpty.length) return sources;
+
+      const header = nonEmpty[0].map((cell) => cleanCell(cell).toLowerCase());
+      const indexOf = (patterns, fallback) => {
+        const found = header.findIndex((label) => patterns.some((pattern) => label.includes(pattern)));
+        return found >= 0 ? found : fallback;
+      };
+      const indexes = {
+        address: indexOf(["zielort", "adresse"], 0),
+        facility: indexOf(["einrichtungsname", "einrichtung"], 1),
+        sourceUrl: indexOf(["quelle", "url"], 2),
+        note: indexOf(["hinweis"], 3),
+        shortName: indexOf(["kurzname", "kurz"], 4)
+      };
+
+      nonEmpty.slice(1).forEach((row) => {
+        const address = cleanCell(row[indexes.address]);
+        if (!address) return;
+
+        const source = {
+          address,
+          facilityFullName: cleanCell(row[indexes.facility]),
+          sourceUrl: cleanCell(row[indexes.sourceUrl]),
+          note: cleanCell(row[indexes.note]),
+          shortName: cleanCell(row[indexes.shortName])
+        };
+
+        sources.byAddress.set(normalizeForCompare(address), source);
+        const shortKey = normalizeForCompare(source.shortName);
+        if (shortKey) {
+          if (!sources.byShortName.has(shortKey)) sources.byShortName.set(shortKey, []);
+          sources.byShortName.get(shortKey).push(source);
+        }
+      });
+
+      return sources;
+    }
+
+    function applySourceCorrections(records, sourceIndex) {
+      return records.map((record) => {
+        const targetKey = normalizeForCompare(record.target);
+        const source = sourceIndex.byAddress.get(targetKey) || findSourceByFacilityAndAddress(record, sourceIndex);
+
+        if (!source) {
+          state.issues.push(`Zeile ${record.rowNumber}: Zielort nicht in Quellen_Einrichtungen gefunden`);
+          return {
+            ...record,
+            targetOriginal: record.target,
+            targetVerified: false,
+            targetGeocodeQuery: record.target
+          };
+        }
+
+        return {
+          ...record,
+          targetOriginal: record.target,
+          target: source.address,
+          targetVerified: true,
+          targetGeocodeQuery: source.address,
+          targetSourceUrl: source.sourceUrl,
+          targetSourceNote: source.note,
+          facilityName: source.shortName || record.facilityName,
+          facilityFullName: source.facilityFullName || record.facilityName
+        };
+      });
+    }
+
+    function findSourceByFacilityAndAddress(record, sourceIndex) {
+      const candidates = sourceIndex.byShortName.get(normalizeForCompare(record.facilityName)) || [];
+      if (!candidates.length) return null;
+      const targetKey = normalizeForCompare(record.target);
+      return candidates.find((source) => normalizeForCompare(source.address) === targetKey) || null;
     }
 
     function looksLikeHeader(row) {
@@ -1532,6 +1735,10 @@
           state.issues.push(`Zeile ${record.rowNumber}: ${record.term} unvollständig geocodiert`);
         }
 
+        if (targetGeo && targetGeo.precision && targetGeo.precision !== "house-number") {
+          state.issues.push(`Zeile ${record.rowNumber}: ${record.term} Zielort nur mit Präzision "${targetGeo.precision}" geocodiert`);
+        }
+
         if (targetGeo && state.orientation.length) {
           mapped.nearestOrientation = findNearestOrientation(targetGeo.coord);
           mapped.targetOrientationKm = mapped.nearestOrientation ? mapped.nearestOrientation.distanceKm : null;
@@ -1567,13 +1774,16 @@
 
       records.forEach((record) => {
         if (!record.targetGeo) return;
+        if (isAlloheimNiersRecord(record)) return;
         const key = normalizeForCompare(record.facilityName || record.target);
         if (!clustersByKey.has(key)) {
           clustersByKey.set(key, {
             key,
             facilityName: record.facilityName || record.target,
+            facilityFullName: record.facilityFullName || record.facilityName || record.target,
             records: [],
             targetAddresses: new Set(),
+            sourceUrls: new Set(),
             coords: []
           });
         }
@@ -1581,6 +1791,7 @@
         const cluster = clustersByKey.get(key);
         cluster.records.push(record);
         cluster.targetAddresses.add(record.target);
+        if (record.targetSourceUrl) cluster.sourceUrls.add(record.targetSourceUrl);
         cluster.coords.push(record.targetGeo.coord);
       });
 
@@ -1612,6 +1823,39 @@
       return clusters;
     }
 
+    function buildSpecialTargetClusters(records) {
+      const alloheimRecords = records.filter((record) => record.targetGeo && isAlloheimNiersRecord(record));
+      if (!alloheimRecords.length) return [];
+
+      const coords = alloheimRecords.map((record) => record.targetGeo.coord);
+      const coord = averageCoord(coords);
+      const nearestOrientation = state.orientation.length ? findNearestOrientation(coord) : null;
+      return [{
+        key: ALLOHEIM_NIERS.key,
+        facilityName: ALLOHEIM_NIERS.facilityName,
+        facilityFullName: ALLOHEIM_NIERS.facilityFullName,
+        records: alloheimRecords,
+        targetAddresses: new Set(alloheimRecords.map((record) => record.target)),
+        sourceUrls: new Set(alloheimRecords.map((record) => record.targetSourceUrl).filter(Boolean)),
+        coords,
+        count: alloheimRecords.length,
+        coord,
+        displayCoord: coord,
+        nearestOrientation,
+        targetOrientationKm: nearestOrientation ? nearestOrientation.distanceKm : null,
+        special: true
+      }];
+    }
+
+    function isAlloheimNiersRecord(record) {
+      const addressKey = normalizeForCompare(record.target || "");
+      const shortKey = normalizeForCompare(record.facilityName || "");
+      const fullKey = normalizeForCompare(record.facilityFullName || "");
+      return addressKey === ALLOHEIM_NIERS.addressKey ||
+        ALLOHEIM_NIERS.shortKeys.includes(shortKey) ||
+        fullKey.includes("alloheim senioren residenz an der niers");
+    }
+
     function averageCoord(coords) {
       const sum = coords.reduce((acc, coord) => [acc[0] + coord[0], acc[1] + coord[1]], [0, 0]);
       return [sum[0] / coords.length, sum[1] / coords.length];
@@ -1627,6 +1871,7 @@
           clustersByPostcode.set(key, {
             key,
             postcode: record.home,
+            homeLabels: new Set(),
             records: [],
             coords: []
           });
@@ -1634,6 +1879,7 @@
 
         const cluster = clustersByPostcode.get(key);
         cluster.records.push(record);
+        if (record.homeRaw) cluster.homeLabels.add(record.homeRaw);
         cluster.coords.push(record.homeGeo.coord);
       });
 
@@ -1673,6 +1919,7 @@
     function homeClusterFocusRows(cluster) {
       return [
         ["Postleitzahl", cluster.postcode],
+        ["Gebiet", [...cluster.homeLabels].join(" | ") || cluster.postcode],
         ["Anzahl", String(cluster.count)],
         { heading: "Patienten:" },
         ...cluster.records
@@ -1691,6 +1938,7 @@
 
       return `
         <p class="popup-title">PLZ ${escapeHtml(cluster.postcode)}</p>
+        <p class="popup-row"><strong>Gebiet:</strong> ${escapeHtml([...cluster.homeLabels].join(" | ") || cluster.postcode)}</p>
         <p class="popup-row"><strong>Anzahl:</strong> ${cluster.count}</p>
         <div class="popup-list"><strong class="popup-list-title">Patienten:</strong>${itemList}</div>
       `;
@@ -1698,10 +1946,11 @@
 
     function clusterFocusRows(cluster) {
       return [
-        ["Einrichtung", cluster.facilityName],
+        ["Einrichtung", cluster.facilityFullName || cluster.facilityName],
+        ["Kurzname", cluster.facilityName],
         ["Anzahl", String(cluster.count)],
         ["Zieladresse", [...cluster.targetAddresses].join(" | ")],
-        ["Nächster Orientierungspunkt", nearestOrientationLabel(cluster)],
+        ["Nächste SAG KZP-Einrichtung", nearestOrientationLabel(cluster)],
         { heading: "Patienten:" },
         ...cluster.records
           .slice()
@@ -1721,9 +1970,10 @@
 
       return `
         <p class="popup-title">${escapeHtml(cluster.facilityName)}</p>
+        <p class="popup-row"><strong>Einrichtung:</strong> ${escapeHtml(cluster.facilityFullName || cluster.facilityName)}</p>
         <p class="popup-row"><strong>Anzahl:</strong> ${cluster.count}</p>
         <p class="popup-row"><strong>Zieladresse:</strong><br>${addressText}</p>
-        <p class="popup-row"><strong>Nächster Orientierungspunkt:</strong> ${escapeHtml(nearestLabel)}</p>
+        <p class="popup-row"><strong>Nächste SAG KZP-Einrichtung:</strong> ${escapeHtml(nearestLabel)}</p>
         <div class="popup-list"><strong class="popup-list-title">Patienten:</strong>${itemList}</div>
       `;
     }
@@ -1734,8 +1984,211 @@
       return `${cluster.nearestOrientation.code} - ${cluster.nearestOrientation.name} "${distance}"`;
     }
 
+    function orientationFocusRows(point) {
+      return [
+        ["Adresse", point.address],
+        ["Geocoding", point.fallbackUsed ? "Fallback-Koordinate" : "Nominatim-Treffer"]
+      ];
+    }
+
+    function selectSagKzpFacility(point) {
+      setFocus("SAG KZP-Einrichtung", `${point.code} - ${point.name}`, orientationFocusRows(point));
+      setActiveSelection(
+        { type: "orientation", code: point.code },
+        { coord: point.coord, html: orientationPopup(point) }
+      );
+    }
+
+    function selectAlloheimCluster(cluster) {
+      setFocus("Sonderzielort", ALLOHEIM_NIERS.facilityName, clusterFocusRows(cluster));
+      setActiveSelection(
+        { type: "target", key: cluster.key },
+        { coord: cluster.displayCoord, html: clusterPopup(cluster) }
+      );
+    }
+
+    function selectAlloheimFromSidebar() {
+      let cluster = buildSpecialTargetClusters(filteredRecords())[0];
+      if (!cluster && state.search) {
+        state.search = "";
+        dom.searchInput.value = "";
+        cluster = buildSpecialTargetClusters(state.mappedRecords)[0];
+      }
+
+      if (!cluster) {
+        setStatus("Alloheim an der Niers ist erst nach dem Excel-Upload auswählbar.", 100);
+        return;
+      }
+
+      selectAlloheimCluster(cluster);
+    }
+
     function highlightHomes(recordIds, active) {
       recordIds.forEach((recordId) => highlightHome(recordId, active));
+    }
+
+    function setActiveSelection(selection, info) {
+      state.activeSelection = selection;
+      state.activeInfo = info || null;
+      if (state.engine === "svg") {
+        renderFallbackMap();
+        return;
+      }
+      renderDataLayers();
+    }
+
+    function clearActiveSelection() {
+      if (!state.activeSelection && !state.activeInfo) return;
+      state.activeSelection = null;
+      state.activeInfo = null;
+      clearPinnedInfo();
+      if (state.engine === "svg") {
+        renderFallbackMap();
+        return;
+      }
+      renderDataLayers();
+    }
+
+    function clearPinnedInfo() {
+      if (state.pinnedPopup && state.map) {
+        state.map.removeLayer(state.pinnedPopup);
+      }
+      state.pinnedPopup = null;
+      if (state.fallback.pinnedTooltip) {
+        state.fallback.pinnedTooltip.style.display = "none";
+      }
+    }
+
+    function renderPinnedInfo() {
+      if (state.engine !== "leaflet" || !state.map) return;
+      clearPinnedInfo();
+      if (!state.activeInfo || !isCoord(state.activeInfo.coord)) return;
+
+      state.pinnedPopup = L.popup({
+        closeButton: false,
+        autoPan: false,
+        autoClose: false,
+        closeOnClick: false,
+        className: "insight-popup pinned-info-popup"
+      })
+        .setLatLng(state.activeInfo.coord)
+        .setContent(state.activeInfo.html || "");
+
+      state.pinnedPopup.addTo(state.map);
+    }
+
+    function renderSelectionLines(context) {
+      if (state.engine !== "leaflet" || !state.layers.selection) return;
+      state.layers.selection.clearLayers();
+
+      getSelectionConnections(context).forEach((connection) => {
+        L.polyline([connection.from, connection.to], leafSelectionLineStyle(connection.color)).addTo(state.layers.selection);
+      });
+    }
+
+    function leafSelectionLineStyle(color) {
+      if (color === "black") {
+        return {
+          color: "#111827",
+          weight: 3.4,
+          opacity: 0.92,
+          lineCap: "round",
+          lineJoin: "round"
+        };
+      }
+      return {
+        color: "#1f6feb",
+        weight: 3.6,
+        opacity: 0.94,
+        lineCap: "round",
+        lineJoin: "round"
+      };
+    }
+
+    function getSelectionConnections(context) {
+      if (!state.activeSelection || !state.settings.lines) return [];
+
+      const connections = [];
+      const seen = new Set();
+      const addConnection = (from, to, color) => {
+        if (!isCoord(from) || !isCoord(to)) return;
+        const key = `${color}:${coordKey(from)}:${coordKey(to)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        connections.push({ from, to, color });
+      };
+
+      if (state.activeSelection.type === "home") {
+      const cluster = context.homeClusters.find((item) => item.key === state.activeSelection.key);
+        if (!cluster) return connections;
+
+        cluster.records.forEach((record) => {
+          const targetCluster = context.targetClusterByRecordId.get(record.id);
+          const orientationTarget = orientationForRecord(record);
+          const targetCoord = orientationTarget
+            ? orientationTarget.coord
+            : targetCluster ? targetCluster.displayCoord : record.targetGeo && record.targetGeo.coord;
+          addConnection(cluster.displayCoord, targetCoord, "blue");
+        });
+      }
+
+      if (state.activeSelection.type === "target") {
+        const selectableTargets = context.selectableTargetClusters || context.targetClusters || [];
+        const cluster = selectableTargets.find((item) => item.key === state.activeSelection.key);
+        if (!cluster) return connections;
+
+        cluster.records.forEach((record) => {
+          const homeCluster = context.homeClusterByRecordId.get(record.id);
+          addConnection(cluster.displayCoord, homeCluster ? homeCluster.displayCoord : record.homeGeo && record.homeGeo.coord, "blue");
+        });
+      }
+
+      if (state.activeSelection.type === "orientation") {
+        const point = state.orientation.find((item) => item.code === state.activeSelection.code);
+        if (!point) return connections;
+
+        context.records.forEach((record) => {
+          const orientationTarget = orientationForRecord(record);
+          if (!orientationTarget || orientationTarget.code !== point.code) return;
+          const homeCluster = context.homeClusterByRecordId.get(record.id);
+          addConnection(point.coord, homeCluster ? homeCluster.displayCoord : record.homeGeo && record.homeGeo.coord, "black");
+        });
+      }
+
+      return connections;
+    }
+
+    function orientationForRecord(record) {
+      if (!record || !record.targetGeo || !state.orientation.length) return null;
+
+      return state.orientation.find((point) => {
+        if (targetAddressMatchesOrientation(record, point)) return true;
+        const closeEnough = haversineKm(record.targetGeo.coord, point.coord) <= 0.45;
+        return closeEnough && targetNameMatchesOrientation(record, point);
+      }) || null;
+    }
+
+    function targetAddressMatchesOrientation(record, point) {
+      const targetAddress = parseGermanStreetAddress(record.target || "");
+      const orientationAddress = parseGermanStreetAddress(point.address || "");
+      if (!targetAddress || !orientationAddress) return false;
+      return targetAddress.postcode === orientationAddress.postcode
+        && streetNamesMatch(targetAddress.street, orientationAddress.street)
+        && houseNumbersMatch(targetAddress.houseNumber, orientationAddress.houseNumber);
+    }
+
+    function targetNameMatchesOrientation(record, point) {
+      const pointName = normalizeForCompare(point.name);
+      const shortName = normalizeForCompare(record.facilityName || "");
+      const fullName = normalizeForCompare(record.facilityFullName || "");
+      return Boolean(
+        (shortName && (pointName.includes(shortName) || shortName.includes(pointName))) ||
+        (fullName && (pointName.includes(fullName) || fullName.includes(pointName)))
+      );
+    }
+
+    function isCoord(coord) {
+      return Array.isArray(coord) && coord.length >= 2 && Number.isFinite(coord[0]) && Number.isFinite(coord[1]);
     }
 
     async function geocode(rawQuery, fallbackCoord) {
@@ -1745,10 +2198,134 @@
       }
 
       const query = normalizeQuery(rawQuery);
-      const cacheKey = `geo-map-v4:${query.toLowerCase()}`;
+      const cacheKey = `geo-map-v5:${normalizeForCompare(query)}`;
       const cached = readCache(cacheKey);
       if (cached) return cached;
 
+      const parsedAddress = parseGermanStreetAddress(raw);
+      if (parsedAddress) {
+        const photonValue = await geocodeAddressWithPhoton(raw, parsedAddress);
+        if (photonValue) {
+          writeCache(cacheKey, photonValue);
+          return photonValue;
+        }
+
+        const structuredValue = await geocodeAddressWithNominatim(raw, parsedAddress);
+        if (structuredValue) {
+          writeCache(cacheKey, structuredValue);
+          return structuredValue;
+        }
+      }
+
+      const freeValue = await geocodeWithNominatimQuery(query, fallbackCoord);
+      if (freeValue) {
+        writeCache(cacheKey, freeValue);
+        return freeValue;
+      }
+
+      if (fallbackCoord) {
+        const fallback = { coord: fallbackCoord, displayName: rawQuery, fallbackUsed: true, provider: "fallback" };
+        writeCache(cacheKey, fallback);
+        return fallback;
+      }
+
+      throw new Error(`Kein Treffer für ${rawQuery}`);
+    }
+
+    async function geocodeAddressWithPhoton(rawQuery, parsedAddress) {
+      try {
+        const url = new URL("https://photon.komoot.io/api/");
+        url.searchParams.set("q", normalizeQuery(rawQuery));
+        url.searchParams.set("limit", "6");
+        url.searchParams.set("lang", "de");
+
+        const response = await fetch(url.toString(), {
+          headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json();
+        const features = Array.isArray(data.features) ? data.features : [];
+        const scored = features
+          .map((feature) => ({ feature, score: scorePhotonAddressFeature(feature, parsedAddress) }))
+          .filter((item) => item.score.total >= 3)
+          .sort((a, b) => b.score.total - a.score.total);
+
+        if (!scored.length) return null;
+
+        const precise = scored.filter((item) => item.score.precise);
+        const selected = precise.length ? precise : [scored[0]];
+        const matchingHouseFeatures = selected.filter((item) => item.score.houseMatch);
+        const featuresForCoord = matchingHouseFeatures.length > 1 ? matchingHouseFeatures : [selected[0]];
+        const coord = averageCoord(featuresForCoord.map((item) => photonCoord(item.feature)));
+        const best = selected[0];
+        const props = best.feature.properties || {};
+
+        return {
+          coord,
+          displayName: photonDisplayName(best.feature, rawQuery),
+          name: cleanCell(props.name || props.street || rawQuery),
+          fallbackUsed: false,
+          provider: "photon-address",
+          precision: best.score.precise ? "house-number" : "street-postcode",
+          matchedStreet: cleanCell(props.street || props.name || ""),
+          matchedHouseNumber: cleanCell(props.housenumber || ""),
+          matchedPostcode: cleanCell(props.postcode || "")
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    async function geocodeAddressWithNominatim(rawQuery, parsedAddress) {
+      await waitForGeocodeTurn();
+
+      const url = new URL("https://nominatim.openstreetmap.org/search");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("limit", "1");
+      url.searchParams.set("countrycodes", "de");
+      url.searchParams.set("addressdetails", "1");
+      url.searchParams.set("namedetails", "1");
+      url.searchParams.set("accept-language", "de");
+      url.searchParams.set("street", `${parsedAddress.houseNumber} ${parsedAddress.street}`.trim());
+      url.searchParams.set("postalcode", parsedAddress.postcode);
+      url.searchParams.set("city", parsedAddress.city);
+      url.searchParams.set("country", "Deutschland");
+
+      try {
+        const response = await fetch(url.toString(), {
+          headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const results = await response.json();
+        if (Array.isArray(results) && results.length) {
+          const first = results[0];
+          const score = scoreNominatimAddress(first, parsedAddress);
+          if (score.total >= 2) {
+            return {
+              coord: [Number(first.lat), Number(first.lon)],
+              displayName: first.display_name || rawQuery,
+              name: extractNominatimName(first),
+              fallbackUsed: false,
+              provider: "nominatim-structured",
+              precision: score.precise ? "house-number" : "street-postcode",
+              matchedStreet: nominatimRoad(first),
+              matchedHouseNumber: nominatimHouseNumber(first),
+              matchedPostcode: nominatimPostcode(first)
+            };
+          }
+        }
+      } catch {
+        return null;
+      }
+
+      return null;
+    }
+
+    async function geocodeWithNominatimQuery(query, fallbackCoord) {
       await waitForGeocodeTurn();
 
       const url = new URL("https://nominatim.openstreetmap.org/search");
@@ -1765,33 +2342,137 @@
           headers: { "Accept": "application/json" }
         });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const results = await response.json();
         if (Array.isArray(results) && results.length) {
           const first = results[0];
-          const value = {
+          return {
             coord: [Number(first.lat), Number(first.lon)],
             displayName: first.display_name || query,
             name: extractNominatimName(first),
-            fallbackUsed: false
+            fallbackUsed: false,
+            provider: "nominatim-free",
+            precision: "query"
           };
-          writeCache(cacheKey, value);
-          return value;
         }
       } catch (error) {
         if (!fallbackCoord) throw error;
       }
 
-      if (fallbackCoord) {
-        const fallback = { coord: fallbackCoord, displayName: rawQuery, fallbackUsed: true };
-        writeCache(cacheKey, fallback);
-        return fallback;
-      }
+      return null;
+    }
 
-      throw new Error(`Kein Treffer für ${rawQuery}`);
+    function parseGermanStreetAddress(value) {
+      const text = cleanCell(value).replace(/\s+,/g, ",");
+      const parts = text.split(",").map((part) => cleanCell(part));
+      if (!parts.length) return null;
+
+      const streetMatch = parts[0].match(/^(.+?)\s+(\d+\s*[a-zA-Z]?(?:\s*[-–]\s*\d+\s*[a-zA-Z]?)?)$/);
+      const rest = parts.slice(1).join(", ");
+      const postcode = extractPostcode(rest);
+      if (!streetMatch || !postcode) return null;
+
+      return {
+        street: cleanCell(streetMatch[1]),
+        houseNumber: cleanCell(streetMatch[2]).replace(/–/g, "-"),
+        postcode,
+        city: cleanCell(rest.replace(/\b\d{5}\b/, "").replace(/^,|,$/g, "")),
+        raw: text
+      };
+    }
+
+    function scorePhotonAddressFeature(feature, parsedAddress) {
+      const props = feature.properties || {};
+      const streetMatch = streetNamesMatch(parsedAddress.street, props.street || props.name || "");
+      const houseMatch = houseNumbersMatch(parsedAddress.houseNumber, props.housenumber || "");
+      const postcodeMatch = cleanCell(props.postcode) === parsedAddress.postcode;
+      const nameMatch = normalizeForCompare(props.name || "").includes(normalizeForCompare(parsedAddress.raw.split(",")[0]));
+      const total = (streetMatch ? 2 : 0) + (houseMatch ? 2 : 0) + (postcodeMatch ? 1 : 0) + (nameMatch ? 1 : 0);
+      return {
+        total,
+        streetMatch,
+        houseMatch,
+        postcodeMatch,
+        precise: houseMatch && postcodeMatch && (streetMatch || nameMatch)
+      };
+    }
+
+    function scoreNominatimAddress(result, parsedAddress) {
+      const streetMatch = streetNamesMatch(parsedAddress.street, nominatimRoad(result));
+      const houseMatch = houseNumbersMatch(parsedAddress.houseNumber, nominatimHouseNumber(result));
+      const postcodeMatch = nominatimPostcode(result) === parsedAddress.postcode;
+      return {
+        total: (streetMatch ? 2 : 0) + (houseMatch ? 2 : 0) + (postcodeMatch ? 1 : 0),
+        streetMatch,
+        houseMatch,
+        postcodeMatch,
+        precise: streetMatch && houseMatch && postcodeMatch
+      };
+    }
+
+    function photonCoord(feature) {
+      const coords = feature && feature.geometry ? feature.geometry.coordinates : null;
+      return Array.isArray(coords) ? [Number(coords[1]), Number(coords[0])] : [NaN, NaN];
+    }
+
+    function photonDisplayName(feature, fallback) {
+      const props = feature.properties || {};
+      const parts = [
+        props.name,
+        [props.street, props.housenumber].filter(Boolean).join(" "),
+        props.postcode,
+        props.city,
+        props.country
+      ].filter(Boolean);
+      return parts.length ? [...new Set(parts)].join(", ") : fallback;
+    }
+
+    function nominatimAddress(result) {
+      return result && result.address ? result.address : {};
+    }
+
+    function nominatimRoad(result) {
+      const address = nominatimAddress(result);
+      return cleanCell(address.road || address.pedestrian || address.footway || address.residential || "");
+    }
+
+    function nominatimHouseNumber(result) {
+      return cleanCell(nominatimAddress(result).house_number || "");
+    }
+
+    function nominatimPostcode(result) {
+      return cleanCell(nominatimAddress(result).postcode || "");
+    }
+
+    function streetNamesMatch(expected, actual) {
+      const left = streetCompareKey(expected);
+      const right = streetCompareKey(actual);
+      if (!left || !right) return false;
+      return left === right || left.includes(right) || right.includes(left);
+    }
+
+    function streetCompareKey(value) {
+      return normalizeForCompare(value)
+        .replace(/\bstr\b/g, "strasse")
+        .replace(/\s+/g, "")
+        .replace(/sstrasse$/, "strasse");
+    }
+
+    function houseNumbersMatch(expected, actual) {
+      const expectedParts = houseNumberParts(expected);
+      const actualParts = houseNumberParts(actual);
+      if (!expectedParts.length || !actualParts.length) return false;
+      return expectedParts.some((part) => actualParts.includes(part));
+    }
+
+    function houseNumberParts(value) {
+      return cleanCell(value)
+        .toLowerCase()
+        .replace(/–/g, "-")
+        .replace(/\s+/g, "")
+        .split("-")
+        .filter(Boolean);
     }
 
     async function geocodePostcode(postcode) {
@@ -1873,6 +2554,11 @@
       return /^\d{5}$/.test(cleanCell(value));
     }
 
+    function extractPostcode(value) {
+      const match = cleanCell(value).match(/\b\d{5}\b/);
+      return match ? match[0] : "";
+    }
+
     function normalizeQuery(value) {
       const query = cleanCell(value);
       if (/\b(deutschland|germany)\b/i.test(query)) return query;
@@ -1927,7 +2613,7 @@
     function clearGeocodeCache() {
       try {
         Object.keys(localStorage)
-          .filter((key) => key.startsWith("geo-map-v3:") || key.startsWith("geo-map-v4:") || key.startsWith("geo-plz-"))
+          .filter((key) => key.startsWith("geo-map-v3:") || key.startsWith("geo-map-v4:") || key.startsWith("geo-map-v5:") || key.startsWith("geo-plz-"))
           .forEach((key) => localStorage.removeItem(key));
         setStatus("Geocoding-Cache geleert.", 100);
       } catch {
@@ -1975,21 +2661,45 @@
             permanent: true,
             direction: "top",
             offset: [0, -8],
-            className: "orientation-label"
+            className: "orientation-label",
+            interactive: true
           });
         }
 
         attachHover(marker, {
-          type: "Orientierungspunkt",
+          type: "SAG KZP-Einrichtung",
           title: `${point.code} - ${point.name}`,
-          rows: [
-            ["Adresse", point.address],
-            ["Geocoding", point.fallbackUsed ? "Fallback-Koordinate" : "Nominatim-Treffer"]
-          ],
+          rows: orientationFocusRows(point),
           popup: orientationPopup(point)
+        }, {
+          onClick: () => selectSagKzpFacility(point)
         });
 
         marker.addTo(state.layers.orientation);
+        window.setTimeout(() => bindSagKzpTooltipClick(marker, point), 0);
+      });
+    }
+
+    function bindSagKzpTooltipClick(marker, point) {
+      const tooltip = marker.getTooltip && marker.getTooltip();
+      const element = tooltip && tooltip.getElement && tooltip.getElement();
+      if (!element || element.dataset.sagKzpClickBound === "true") return;
+
+      element.dataset.sagKzpClickBound = "true";
+      element.setAttribute("role", "button");
+      element.setAttribute("tabindex", "0");
+      element.setAttribute("aria-label", `${point.code} - ${point.name} auswählen`);
+
+      const activate = (event) => {
+        if (event && event.preventDefault) event.preventDefault();
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (window.L && L.DomEvent) L.DomEvent.stop(event);
+        selectSagKzpFacility(point);
+      };
+
+      element.addEventListener("click", activate);
+      element.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") activate(event);
       });
     }
 
@@ -2000,48 +2710,47 @@
       }
 
       clearDataLayers();
-      state.lineMarkers.clear(); // <-- Map vor jedem Neuzeichnen leeren
+      state.homeMarkers.clear();
 
-      const records = filteredRecords(); // <-- KORREKTUR: Nutzt den echten Funktionsnamen
-      const targetClusters = buildTargetClusters(records);
+      const records = filteredRecords();
       const homeClusters = buildHomeClusters(records);
       const homeClusterByRecordId = indexClustersByRecordId(homeClusters);
-      const targetClusterByRecordId = indexClustersByRecordId(targetClusters);
+      const targetClusters = buildTargetClusters(records);
+      const specialTargetClusters = buildSpecialTargetClusters(records);
+      const selectableTargetClusters = [...targetClusters, ...specialTargetClusters];
+      const targetClusterByRecordId = indexClustersByRecordId(selectableTargetClusters);
 
-      // 1. Verbindungen zeichnen
-      if (state.settings.lines) {
-        records.forEach((record) => {
-          if (!record.homeGeo || !record.targetGeo) return;
-          const homeCluster = homeClusterByRecordId.get(record.id);
-          const cluster = targetClusterByRecordId.get(record.id);
+      renderSelectionLines({ records, homeClusters, homeClusterByRecordId, targetClusters, specialTargetClusters, selectableTargetClusters, targetClusterByRecordId });
 
-          const line = L.polyline([
-            homeCluster ? homeCluster.displayCoord : record.homeGeo.coord,
-            cluster ? cluster.displayCoord : record.targetGeo.coord
-          ], {
-            color: "#4a5568",
-            weight: 1.35,
-            opacity: 0.5,
-            dashArray: "5 7"
-          }).addTo(state.layers.lines);
-
-          // Verbindungslinie unter der ID des Datensatzes registrieren
-          state.lineMarkers.set(record.id, line);
-        });
-      }
-
-      // 2. Wohnorte zeichnen
       if (state.settings.homes) {
         homeClusters.forEach((cluster) => {
-          const marker = L.circleMarker(cluster.displayCoord, { radius: 6, color: "#ffffff", weight: 2, fillColor: "#1f6feb", fillOpacity: 0.92 });
+          const marker = L.circleMarker(cluster.displayCoord, {
+            radius: 6,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: "#1f6feb",
+            fillOpacity: 0.92
+          });
+
           if (state.settings.labels) {
-            marker.bindTooltip(String(cluster.count), { permanent: true, direction: "right", offset: [8, 0], className: "distance-label home-label" });
+            marker.bindTooltip(String(cluster.count), {
+              permanent: true,
+              direction: "right",
+              offset: [8, 0],
+              className: "distance-label home-label"
+            });
           }
 
-          // Linien-Highlight beim Hover über Wohnorte aktivieren:
-          attachHover(marker, { type: "Wohnort-Cluster", title: `PLZ ${cluster.postcode}`, rows: homeClusterFocusRows(cluster), popup: homeClusterPopup(cluster) }, {
-            onEnter: () => highlightLines(cluster.records.map((r) => r.id), true),
-            onLeave: () => highlightLines(cluster.records.map((r) => r.id), false)
+          attachHover(marker, {
+            type: "Wohnort-Cluster",
+            title: `PLZ ${cluster.postcode}`,
+            rows: homeClusterFocusRows(cluster),
+            popup: homeClusterPopup(cluster)
+          }, {
+            onClick: () => setActiveSelection(
+              { type: "home", key: cluster.key },
+              { coord: cluster.displayCoord, html: homeClusterPopup(cluster) }
+            )
           });
 
           cluster.records.forEach((record) => state.homeMarkers.set(record.id, marker));
@@ -2049,69 +2758,82 @@
         });
       }
 
-      // 3. Zielorte zeichnen
       if (state.settings.targets) {
         targetClusters.forEach((cluster) => {
-          const marker = L.circleMarker(cluster.displayCoord, { radius: 6, color: "#ffffff", weight: 2, fillColor: "#121212", fillOpacity: 0.96 });
+          const marker = L.circleMarker(cluster.displayCoord, {
+            radius: 6,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: "#121212",
+            fillOpacity: 0.96
+          });
+
           if (state.settings.labels) {
-            marker.bindTooltip(String(cluster.count), { permanent: true, direction: "left", offset: [-8, 0], className: "distance-label target-label" });
+            marker.bindTooltip(String(cluster.count), {
+              permanent: true,
+              direction: "left",
+              offset: [-8, 0],
+              className: "distance-label target-label"
+            });
           }
 
-          // Sowohl verknüpfte Wohnorte als auch Linien beim Hover über Zielorte hervorheben:
-          attachHover(marker, { type: "Zielort-Cluster", title: cluster.facilityName, rows: clusterFocusRows(cluster), popup: clusterPopup(cluster) }, {
-            onEnter: () => {
-              highlightHomes(cluster.records.map((record) => record.id), true);
-              highlightLines(cluster.records.map((record) => record.id), true);
-            },
-            onLeave: () => {
-              highlightHomes(cluster.records.map((record) => record.id), false);
-              highlightLines(cluster.records.map((record) => record.id), false);
-            }
+          attachHover(marker, {
+            type: "Zielort-Cluster",
+            title: cluster.facilityName,
+            rows: clusterFocusRows(cluster),
+            popup: clusterPopup(cluster)
+          }, {
+            onClick: () => setActiveSelection(
+              { type: "target", key: cluster.key },
+              { coord: cluster.displayCoord, html: clusterPopup(cluster) }
+            ),
+            onEnter: () => highlightHomes(cluster.records.map((record) => record.id), true),
+            onLeave: () => highlightHomes(cluster.records.map((record) => record.id), false)
+          });
+
+          marker.addTo(state.layers.targets);
+        });
+
+        specialTargetClusters.forEach((cluster) => {
+          const marker = L.circleMarker(cluster.displayCoord, {
+            radius: 7.2,
+            color: "#ffffff",
+            weight: 2.5,
+            fillColor: ALLOHEIM_NIERS.color,
+            fillOpacity: 0.96
+          });
+
+          if (state.settings.labels) {
+            marker.bindTooltip(String(cluster.count), {
+              permanent: true,
+              direction: "right",
+              offset: [9, 0],
+              className: "distance-label special-label"
+            });
+          }
+
+          attachHover(marker, {
+            type: "Sonderzielort",
+            title: ALLOHEIM_NIERS.facilityName,
+            rows: clusterFocusRows(cluster),
+            popup: clusterPopup(cluster)
+          }, {
+            onClick: () => selectAlloheimCluster(cluster),
+            onEnter: () => highlightHomes(cluster.records.map((record) => record.id), true),
+            onLeave: () => highlightHomes(cluster.records.map((record) => record.id), false)
           });
 
           marker.addTo(state.layers.targets);
         });
       }
 
-      if (state.settings.orientation) {
-        drawOrientationMarkers();
-      }
-    }
-
-    function drawOrientationMarkers() {
-      if (state.engine !== "leaflet" || !state.layers.orientation) return;
-      state.layers.orientation.clearLayers();
-
-      state.orientation.forEach((point) => {
-        const marker = L.circleMarker(point.coord, {
-          radius: 5,
-          color: "#ffffff",
-          weight: 2,
-          fillColor: "#d61f2c",
-          fillOpacity: 0.95
-        });
-
-        if (state.settings.labels) {
-          marker.bindTooltip(point.code, { permanent: true, direction: "top", offset: [0, -6], className: "orientation-label" });
-        }
-
-        attachHover(marker, {
-          type: "Orientierungspunkt",
-          title: `${point.code} - ${point.name}`,
-          rows: [
-            ["Adresse", point.address],
-            ["Geocoding", point.fallbackUsed ? "Fallback-Koordinate" : "Nominatim-Treffer"]
-          ],
-          popup: orientationPopup(point)
-        });
-
-        marker.addTo(state.layers.orientation);
-      });
+      renderPinnedInfo();
     }
 
     function clearDataLayers() {
       if (state.engine === "svg") return;
       state.layers.lines.clearLayers();
+      if (state.layers.selection) state.layers.selection.clearLayers();
       state.layers.homes.clearLayers();
       state.layers.targets.clearLayers();
     }
@@ -2136,35 +2858,6 @@
       if (active) marker.group.parentNode.appendChild(marker.group);
     }
 
-    function highlightLines(recordIds, active) {
-      // Wenn Leaflet nicht geladen ist (z.B. SVG-Modus), Funktion überspringen
-      if (state.engine !== "leaflet" || !state.lineMarkers) return;
-
-      recordIds.forEach((recordId) => {
-        const line = state.lineMarkers.get(recordId);
-        if (!line) return;
-
-        if (active) {
-          // Beim Hover: Volle Deckkraft (nicht transparent), durchgezogene Linie und dicker
-          line.setStyle({
-            color: "#1f6feb", // Ändert die gehoverten Linien zu einem klaren Blau (passend zum Wohnort)
-            weight: 2.5,
-            opacity: 1.0,
-            dashArray: null // Entfernt die gestrichelte Formatierung
-          });
-          if (line.bringToFront) line.bringToFront(); // Holt die Linie visuell nach ganz oben
-        } else {
-          // Wenn der Mauszeiger den Punkt verlässt: Zurücksetzen auf Standard
-          line.setStyle({
-            color: "#4a5568",
-            weight: 1.35,
-            opacity: 0.5,
-            dashArray: "5 7"
-          });
-        }
-      });
-    }
-
     function renderFallbackMap() {
       if (!state.fallback.svg) return;
 
@@ -2173,7 +2866,10 @@
       const homeClusters = buildHomeClusters(records);
       const homeClusterByRecordId = indexClustersByRecordId(homeClusters);
       const targetClusters = buildTargetClusters(records);
-      const targetClusterByRecordId = indexClustersByRecordId(targetClusters);
+      const specialTargetClusters = buildSpecialTargetClusters(records);
+      const selectableTargetClusters = [...targetClusters, ...specialTargetClusters];
+      const targetClusterByRecordId = indexClustersByRecordId(selectableTargetClusters);
+      const context = { records, homeClusters, homeClusterByRecordId, targetClusters, specialTargetClusters, selectableTargetClusters, targetClusterByRecordId };
       const visiblePoints = [];
       state.homeSvgMarkers.clear();
 
@@ -2185,25 +2881,14 @@
       }
       if (state.settings.targets) {
         targetClusters.forEach((cluster) => visiblePoints.push(cluster.displayCoord));
+        specialTargetClusters.forEach((cluster) => visiblePoints.push(cluster.displayCoord));
       }
 
       const bounds = createGeoBounds(visiblePoints);
       svg.innerHTML = "";
+      svg.onclick = () => clearActiveSelection();
       drawFallbackBase(svg);
-
-      if (state.settings.lines) {
-        records.forEach((record) => {
-          if (!record.homeGeo || !record.targetGeo) return;
-          const homeCluster = homeClusterByRecordId.get(record.id);
-          const cluster = targetClusterByRecordId.get(record.id);
-          const start = projectPoint(homeCluster ? homeCluster.displayCoord : record.homeGeo.coord, bounds);
-          const end = projectPoint(cluster ? cluster.displayCoord : record.targetGeo.coord, bounds);
-          addSvg(svg, "path", {
-            d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
-            class: "fallback-line"
-          });
-        });
-      }
+      drawFallbackSelectionLines(svg, bounds, context);
 
       if (state.settings.orientation) {
         state.orientation.forEach((point) => {
@@ -2216,14 +2901,12 @@
             label: point.code,
             labelSide: "top",
             payload: {
-              type: "Orientierungspunkt",
+              type: "SAG KZP-Einrichtung",
               title: `${point.code} - ${point.name}`,
-              rows: [
-                ["Adresse", point.address],
-                ["Geocoding", point.fallbackUsed ? "Fallback-Koordinate" : "Nominatim-Treffer"]
-              ],
+              rows: orientationFocusRows(point),
               html: orientationPopup(point)
-            }
+            },
+            onClick: () => selectSagKzpFacility(point)
           });
         });
       }
@@ -2243,7 +2926,11 @@
               title: `PLZ ${cluster.postcode}`,
               rows: homeClusterFocusRows(cluster),
               html: homeClusterPopup(cluster)
-            }
+            },
+            onClick: () => setActiveSelection(
+              { type: "home", key: cluster.key },
+              { coord: cluster.displayCoord, html: homeClusterPopup(cluster) }
+            )
           });
           cluster.records.forEach((record) => state.homeSvgMarkers.set(record.id, marker));
         });
@@ -2265,6 +2952,31 @@
               rows: clusterFocusRows(cluster),
               html: clusterPopup(cluster)
             },
+            onClick: () => setActiveSelection(
+              { type: "target", key: cluster.key },
+              { coord: cluster.displayCoord, html: clusterPopup(cluster) }
+            ),
+            onEnter: () => highlightHomes(cluster.records.map((record) => record.id), true),
+            onLeave: () => highlightHomes(cluster.records.map((record) => record.id), false)
+          });
+        });
+
+        specialTargetClusters.forEach((cluster) => {
+          const projected = projectPoint(cluster.displayCoord, bounds);
+          addFallbackMarker({
+            svg,
+            x: projected.x,
+            y: projected.y,
+            className: "special",
+            label: String(cluster.count),
+            labelSide: "right",
+            payload: {
+              type: "Sonderzielort",
+              title: ALLOHEIM_NIERS.facilityName,
+              rows: clusterFocusRows(cluster),
+              html: clusterPopup(cluster)
+            },
+            onClick: () => selectAlloheimCluster(cluster),
             onEnter: () => highlightHomes(cluster.records.map((record) => record.id), true),
             onLeave: () => highlightHomes(cluster.records.map((record) => record.id), false)
           });
@@ -2276,6 +2988,40 @@
         y: 690,
         class: "fallback-caption"
       }, state.engine === "svg" ? "Fallback-Karte ohne externe Kartenskripte" : "");
+
+      renderPinnedFallbackInfo(bounds);
+    }
+
+    function drawFallbackSelectionLines(svg, bounds, context) {
+      getSelectionConnections(context).forEach((connection) => {
+        const start = projectPoint(connection.from, bounds);
+        const end = projectPoint(connection.to, bounds);
+        addSvg(svg, "path", {
+          d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
+          class: `fallback-selection-line ${connection.color}`
+        });
+      });
+    }
+
+    function renderPinnedFallbackInfo(bounds) {
+      const tooltip = state.fallback.pinnedTooltip;
+      if (!tooltip) return;
+      if (!state.activeInfo || !isCoord(state.activeInfo.coord)) {
+        tooltip.style.display = "none";
+        return;
+      }
+
+      const rect = state.fallback.root ? state.fallback.root.getBoundingClientRect() : { width: 1000, height: 720 };
+      const projected = projectPoint(state.activeInfo.coord, bounds);
+      tooltip.innerHTML = state.activeInfo.html || "";
+      tooltip.style.display = "block";
+
+      const left = (projected.x / 1000) * rect.width + 14;
+      const top = (projected.y / 720) * rect.height + 14;
+      const maxLeft = Math.max(8, rect.width - 300);
+      const maxTop = Math.max(8, rect.height - 150);
+      tooltip.style.left = `${Math.min(maxLeft, Math.max(8, left))}px`;
+      tooltip.style.top = `${Math.min(maxTop, Math.max(8, top))}px`;
     }
 
     function drawFallbackBase(svg) {
@@ -2292,7 +3038,7 @@
       }
     }
 
-    function addFallbackMarker({ svg, x, y, className, label, labelSide, payload, onEnter, onLeave }) {
+    function addFallbackMarker({ svg, x, y, className, label, labelSide, payload, onClick, onEnter, onLeave }) {
       const group = addSvg(svg, "g", { tabindex: "0" });
       const radius = className === "orientation" ? 7 : 6;
       const circle = addSvg(group, "circle", {
@@ -2333,7 +3079,11 @@
       group.addEventListener("mouseleave", hide);
       group.addEventListener("focus", (event) => show(event));
       group.addEventListener("blur", hide);
-      circle.addEventListener("click", () => setFocus(payload.type, payload.title, payload.rows));
+      group.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setFocus(payload.type, payload.title, payload.rows);
+        if (onClick) onClick();
+      });
 
       return { group, circle, radius };
     }
@@ -2414,8 +3164,12 @@
         if (hooks.onLeave) hooks.onLeave();
         layer.closePopup();
       });
-      layer.on("click", () => {
+      layer.on("click", (event) => {
+        if (event && event.originalEvent && window.L && L.DomEvent) {
+          L.DomEvent.stop(event.originalEvent);
+        }
         setFocus(payload.type, payload.title, payload.rows);
+        if (hooks.onClick) hooks.onClick();
       });
     }
 
@@ -2469,7 +3223,7 @@
     function filteredRecords() {
       if (!state.search) return state.mappedRecords;
       return state.mappedRecords.filter((record) => {
-        const haystack = `${record.term} ${record.home} ${record.facilityName || ""} ${record.target}`.toLowerCase();
+        const haystack = `${record.term} ${record.home} ${record.homeRaw || ""} ${record.facilityName || ""} ${record.facilityFullName || ""} ${record.target}`.toLowerCase();
         return haystack.includes(state.search);
       });
     }
@@ -2515,12 +3269,14 @@
       const records = filteredRecords();
       const homeClusters = buildHomeClusters(records);
       const targetClusters = buildTargetClusters(records);
+      const specialTargetClusters = buildSpecialTargetClusters(records);
 
       if (state.settings.homes) {
         homeClusters.forEach((cluster) => bounds.push(cluster.displayCoord));
       }
       if (state.settings.targets) {
         targetClusters.forEach((cluster) => bounds.push(cluster.displayCoord));
+        specialTargetClusters.forEach((cluster) => bounds.push(cluster.displayCoord));
       }
 
       if (!bounds.length) {
